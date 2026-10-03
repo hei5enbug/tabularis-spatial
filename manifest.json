@@ -3,7 +3,7 @@
   "name": "spatial",
   "kind": "extension",
   "version": "0.1.0",
-  "description": "PostGIS map extension bootstrap. Service handlers must be connected before use.",
+  "description": "PostGIS map extension for spatial query results and table layers in Tabularis.",
   "service_protocol": 1,
   "capabilities": {
     "schemas": false,
@@ -14,14 +14,18 @@
     "alter_primary_key": false,
     "manage_tables": false,
     "explain": false,
-    "spatial_v1": false
+    "spatial_v1": true
   },
-  "min_runtime_version": "0.26.0",
+  "min_runtime_version": "0.26.1-spatial.1",
   "ui_extensions": [
     {
       "slot": "data-grid.toolbar.actions",
       "module": "ui/dist/index.js",
       "driver": "postgresql"
+    },
+    {
+      "slot": "app.map.renderer",
+      "module": "ui/dist/index.js"
     }
   ]
 }
