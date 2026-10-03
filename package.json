@@ -1,0 +1,11 @@
+{
+  "name": "@tabularis/spatial",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:ui": "corepack pnpm --dir ui build",
+    "typecheck:ui": "corepack pnpm --dir ui typecheck",
+    "test:ui": "corepack pnpm --dir ui test"
+  },
+  "packageManager": "pnpm@10.30.3"
+}
