@@ -31,6 +31,8 @@ export const harness = {
   service: {} as UsePluginServiceReturn,
 };
 harness.service = {
+  executeWrite: vi.fn(async () => { throw new Error("Query writes are unavailable in this map fixture."); }),
+  saveArtifact: vi.fn(async () => false),
   importCredential: vi.fn(async () => { throw new Error("지도 fixture에서 credential.import는 지원하지 않습니다."); }),
   capabilities: vi.fn(async () => capabilities),
   subscribeMap: vi.fn(async handler => { harness.handler = handler; return harness.unsubscribe; }),
