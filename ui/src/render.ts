@@ -3,11 +3,11 @@ import { cameraBounds, countGeometry, SpatialUiError, type Feature, type Geometr
 import { LayerDataStore } from "./data";
 import type { MapAssets } from "./assets";
 
-export function displayFeatures(features: Feature[], layerId: string) {
+export function displayFeatures(features: Feature[], layerId: string, offset = 0) {
   const output: { type: "Feature"; id: string; geometry: Exclude<Geometry, { type: "GeometryCollection" }>; properties: { feature_id: string; layer_id: string } }[] = [];
   const visit = (geometry: Geometry, featureId: string) => {
     if (geometry.type === "GeometryCollection") { for (const child of geometry.geometries) visit(child, featureId); }
-    else if (countGeometry(geometry) > 0) output.push({ type: "Feature", id: `${featureId}:${output.length}`, geometry, properties: { feature_id: featureId, layer_id: layerId } });
+    else if (countGeometry(geometry) > 0) output.push({ type: "Feature", id: `${featureId}:${offset + output.length}`, geometry, properties: { feature_id: featureId, layer_id: layerId } });
   };
   for (const feature of features) if (feature.geometry) visit(feature.geometry, feature.id);
   return output;
@@ -23,6 +23,7 @@ export class MapEngine {
   private map: LibreMap;
   private disposed = false;
   private sourceIds = new Set<string>();
+  private appliedSources = new Map<string, { features: Feature[] | null; sourceKey: string; displayCount: number }>();
   private cameraKey = "";
   private styleKey = "";
   private programmatic = false;
@@ -63,6 +64,7 @@ export class MapEngine {
       if (this.styleKey !== styleKey) {
         this.styleKey = styleKey;
         this.sourceIds.clear();
+        this.appliedSources.clear();
         this.map.setStyle(state.basemap?.style_url ?? this.blankStyle());
       }
       await this.waitFor("style", controller.signal);
@@ -92,15 +94,27 @@ export class MapEngine {
       for (const kind of ["point", "line", "polygon"]) if (this.map.getLayer(`${id}:${kind}`)) this.map.removeLayer(`${id}:${kind}`);
       if (this.map.getSource(id)) this.map.removeSource(id);
       this.sourceIds.delete(id);
+      this.appliedSources.delete(id);
     }
     for (const layer of state.layers) {
       const id = `spatial:${layer.layer_id}`;
       const data = this.data.get(layer.layer_id);
-      const features = data?.sourceKey === JSON.stringify([layer.connection_id, layer.source]) ? displayFeatures(data.page.features, layer.layer_id) : [];
-      const collection = { type: "FeatureCollection" as const, features };
+      const sourceKey = JSON.stringify([layer.connection_id, layer.source]);
+      const features = data?.sourceKey === sourceKey ? data.page.features : null;
       const source = this.map.getSource(id) as GeoJSONSource | undefined;
-      if (source) source.setData(collection);
-      else { this.map.addSource(id, { type: "geojson", data: collection }); this.sourceIds.add(id); }
+      const applied = this.appliedSources.get(id);
+      if (!source || applied?.features !== features || applied.sourceKey !== sourceKey) {
+        const append = source && features && applied?.features && applied.sourceKey === sourceKey
+          && features.length > applied.features.length && applied.features.every((feature, index) => feature === features[index]);
+        const display = displayFeatures(append ? features.slice(applied.features!.length) : features ?? [], layer.layer_id, append ? applied.displayCount : 0);
+        if (append) source.updateData({ add: display });
+        else {
+          const collection = { type: "FeatureCollection" as const, features: display };
+          if (source) source.setData(collection);
+          else { this.map.addSource(id, { type: "geojson", data: collection }); this.sourceIds.add(id); }
+        }
+        this.appliedSources.set(id, { features, sourceKey, displayCount: (append ? applied.displayCount : 0) + display.length });
+      }
       this.syncLayer(layer, id, state);
     }
   }
@@ -163,6 +177,8 @@ export class MapEngine {
     this.map.off("moveend", this.moving);
     this.map.off("click", this.click);
     this.map.remove();
+    this.appliedSources.clear();
+    this.sourceIds.clear();
     this.data.dispose();
     this.assets.dispose();
   }

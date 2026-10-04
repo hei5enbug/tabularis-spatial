@@ -3,7 +3,7 @@ import { waitFor } from "@testing-library/react";
 import { MapEngine } from "../src/render";
 import { LayerDataStore } from "../src/data";
 import { FakeMap } from "./fake-map";
-import { harness, mapFixture, resetHarness } from "./fixtures";
+import { harness, mapFixture, pageFixture, resetHarness } from "./fixtures";
 
 vi.mock("maplibre-gl", async () => ({ Map: (await import("./fake-map")).FakeMap, setWorkerUrl: vi.fn() }));
 beforeEach(() => { resetHarness(); FakeMap.reset(); });
@@ -94,5 +94,69 @@ describe("MapLibre 이벤트 ACK fence mock 검증", () => {
     // then
     await expect(pending).rejects.toThrow("WebGL failed fixture");
     expect(fixture.map.events.get("error")?.size).toBe(0);
+  });
+});
+
+async function applyPresentationChanges(fixture: ReturnType<typeof engine>) {
+  const state = structuredClone(mapFixture);
+  state.viewport = { west: -10, east: 10, south: -10, north: 10 };
+  await fixture.engine.apply(state, new AbortController().signal);
+  state.selected_feature_refs = [{ layer_id: state.layers[0].layer_id, feature_id: "original-snapshot:2:19" }];
+  await fixture.engine.apply(state, new AbortController().signal);
+  state.layers[0].style.line = { width: 7 };
+  state.layers[0].visible = false;
+  await fixture.engine.apply(state, new AbortController().signal);
+}
+
+async function refreshChangedSources(fixture: ReturnType<typeof engine>) {
+  harness.page.features[0].id = "original-snapshot:2:20";
+  harness.page.row_references[0].feature_id = "original-snapshot:2:20";
+  harness.page.row_references[0].row_ordinal = 20;
+  harness.page.page = { next_token: null, has_more: false, resume_mode: "none" };
+  await fixture.store.load(mapFixture.layers[0], new AbortController().signal, true);
+  const source = fixture.map.sources.get("spatial:fixture-layer")!;
+  await fixture.engine.refresh(mapFixture, new AbortController().signal);
+  const appended = source.data;
+  const style = { ...mapFixture, basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
+  await fixture.engine.apply(style, new AbortController().signal);
+  const styled = fixture.map.sources.get("spatial:fixture-layer")!.data;
+  await fixture.engine.apply({ ...style, layers: [] }, new AbortController().signal);
+  const removed = fixture.map.sources.size;
+  await fixture.engine.apply(style, new AbortController().signal);
+  return { source, appended, styled, removed, restored: fixture.map.sources.get("spatial:fixture-layer")!.data };
+}
+
+describe("불변 GeoJSON source 재사용", () => {
+  it("viewport와 선택 및 스타일과 표시 변경은 데이터 재전송 없이 적용한다", async () => {
+    // given
+    const fixture = engine();
+    await fixture.engine.apply(mapFixture, new AbortController().signal);
+    const source = fixture.map.sources.get("spatial:fixture-layer")!;
+    // when
+    await applyPresentationChanges(fixture);
+    // then
+    expect(source.setData).not.toHaveBeenCalled();
+    expect(fixture.map.fitBounds).toHaveBeenCalledTimes(2);
+    expect(fixture.map.setPaintProperty).toHaveBeenCalledWith("spatial:fixture-layer:line", "line-width", 7);
+    expect(fixture.map.setPaintProperty).toHaveBeenCalledWith("spatial:fixture-layer:point", "circle-color", ["case", ["in", ["get", "feature_id"], ["literal", ["original-snapshot:2:19"]]], "#f59e0b", "#3b82f6"]);
+    expect(fixture.map.setLayoutProperty).toHaveBeenCalledWith("spatial:fixture-layer:point", "visibility", "none");
+    expect(harness.requests.filter(request => request.operation === "spatial.query_result")).toHaveLength(1);
+  });
+
+  it("새 데이터와 스타일 교체 및 삭제 뒤 재추가는 source를 다시 게시한다", async () => {
+    // given
+    harness.page.page = { next_token: "render-next", has_more: true, resume_mode: "materialized" };
+    const fixture = engine();
+    await fixture.engine.apply(mapFixture, new AbortController().signal);
+    // when
+    const actual = await refreshChangedSources(fixture);
+    // then
+    expect(actual.source.setData).not.toHaveBeenCalled();
+    expect(actual.source.updateData).toHaveBeenCalledExactlyOnceWith({ add: [{ type: "Feature", id: "original-snapshot:2:20:1", geometry: pageFixture.features[0].geometry, properties: { feature_id: "original-snapshot:2:20", layer_id: "fixture-layer" } }] });
+    expect(actual.appended).toMatchObject({ features: [{ properties: { feature_id: "original-snapshot:2:19" } }, { properties: { feature_id: "original-snapshot:2:20" } }] });
+    expect(actual.styled).toEqual(actual.appended);
+    expect(actual.removed).toBe(0);
+    expect(actual.restored).toMatchObject({ features: [{ properties: { feature_id: "original-snapshot:2:20" } }] });
+    expect(harness.requests.some(request => request.operation === "query.execute")).toBe(false);
   });
 });

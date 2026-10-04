@@ -5,7 +5,7 @@ export class FakeMap {
   static autoEvents = true;
   static lifecycle: string[] = [];
   events = new Map<string, Set<(event: Record<string, unknown>) => void>>();
-  sources = new Map<string, { data: unknown; setData: ReturnType<typeof vi.fn> }>();
+  sources = new Map<string, { data: unknown; setData: ReturnType<typeof vi.fn>; updateData: ReturnType<typeof vi.fn> }>();
   layers = new Map<string, Record<string, unknown>>();
   canvas = document.createElement("canvas");
   styleLoaded = true;
@@ -28,7 +28,11 @@ export class FakeMap {
   areTilesLoaded() { return this.tilesLoaded; }
   isSourceLoaded() { return this.sourcesLoaded; }
   getSource(id: string) { return this.sources.get(id); }
-  addSource(id: string, source: { data: unknown }) { const entry = { data: source.data, setData: vi.fn((data: unknown) => { entry.data = data; }) }; this.sources.set(id, entry); }
+  addSource(id: string, source: { data: unknown }) {
+    const entry = { data: source.data, setData: vi.fn((data: unknown) => { entry.data = data; }),
+      updateData: vi.fn((diff: { add: unknown[] }) => { const data = entry.data as { features: unknown[] }; entry.data = { ...data, features: [...data.features, ...diff.add] }; }) };
+    this.sources.set(id, entry);
+  }
   removeSource(id: string) { this.sources.delete(id); }
   getLayer(id: string) { return this.layers.get(id); }
   addLayer(layer: Record<string, unknown>) { this.layers.set(String(layer.id), layer); }

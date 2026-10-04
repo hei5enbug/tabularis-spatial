@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { makePerformancePages, performanceExpectations, validatePerformance } from './performance-data.mjs';
 
 export const EVIDENCE = 'actual_macos_wkwebview_with_mock_service';
 export const CHECKS = ['open_ack', 'real_worker', 'worker_geojson', 'real_webgl', 'canvas_size', 'feature_options', 'null_empty', 'css_loaded', 'raw_detail', 'safe_text', 'stale_rejected', 'updated_ack', 'close_ack', 'worker_terminated', 'assets_disposed', 'css_removed', 'modal_unmounted', 'root_shutdown', 'unsubscribed', 'no_external_requests', 'no_static_imports', 'query_snapshot_only'];
@@ -16,7 +17,7 @@ const UI = join(SOURCE, 'ui');
 const fixedEnvironment = { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8' };
 
 function failure(code) { return Object.assign(new Error(code), { code }); }
-export function validateReport(raw) {
+export function validateReport(raw, { performanceMode = false } = {}) {
   const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
   if (bytes.length > MAX_REPORT_BYTES) throw failure('REPORT_TOO_LARGE');
   let report;
@@ -39,11 +40,15 @@ export function validateReport(raw) {
       || cycles[0].assets_created !== 2 || cycles[0].assets_disposed !== 2 || cycles[1].assets_created !== 4 || cycles[1].assets_disposed !== 4
       || cycles[1].workers_started <= cycles[0].workers_started || cycles[1].workers_started !== metrics.workers_started || cycles[1].gl_draws <= cycles[0].gl_draws) throw failure('INVALID_REPORT');
   }
+  if (performanceMode) {
+    if (report.mode !== 'performance') throw failure('INVALID_PERFORMANCE_REPORT');
+    if (report.pass) validatePerformance(report.performance, performanceExpectations(makePerformancePages()));
+  }
   return report;
 }
 
-export function fixtureHtml() {
-  return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>V1 WKWebView fixture</title><style>html,body{margin:0;background:#111827;color:#f9fafb;font-family:system-ui}body{padding:16px}button,input,select{font:inherit}[role=dialog]{width:100%}</style></head><body><div id="plugin-root"></div><script>window.addEventListener("error",function(){window.webkit.messageHandlers.v1Result.postMessage({pass:false,code:"SHIM_INITIALIZATION_FAILED",evidence:"' + EVIDENCE + '"})});</script><script src="/shim.js"></script><script src="/production/index.js"></script><script>V1Fixture.start();</script></body></html>';
+export function fixtureHtml({ performanceMode = false } = {}) {
+  return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>V1 WKWebView fixture</title><style>html,body{margin:0;background:#111827;color:#f9fafb;font-family:system-ui}body{padding:16px}button,input,select{font:inherit}[role=dialog]{width:100%}</style></head><body><div id="plugin-root"></div><script>window.addEventListener("error",function(){window.webkit.messageHandlers.v1Result.postMessage({pass:false,code:"SHIM_INITIALIZATION_FAILED",evidence:"' + EVIDENCE + '"})});</script><script src="/shim.js"></script><script src="/production/index.js"></script><script>V1Fixture.' + (performanceMode ? 'startPerformance' : 'start') + '();</script></body></html>';
 }
 
 export function routeFor(method, rawPath, host, port) {
@@ -108,11 +113,11 @@ export async function buildFixture(root) {
   return { bytes: await readFile(join(output, 'fixture.js')), react };
 }
 
-async function serve(files, shim) {
+async function serve(files, shim, options) {
   const requests = [];
   let port;
   const table = new Map([
-    ['/index.html', [Buffer.from(fixtureHtml()), 'text/html; charset=utf-8']],
+    ['/index.html', [Buffer.from(fixtureHtml(options)), 'text/html; charset=utf-8']],
     ['/shim.js', [shim, 'text/javascript; charset=utf-8']],
     ['/production/index.js', [files['index.js'].bytes, 'text/javascript; charset=utf-8']],
     ['/style.css', [files['style.css'].bytes, 'text/css; charset=utf-8']],
@@ -131,10 +136,10 @@ async function serve(files, shim) {
   return { port, requests, close: () => new Promise(resolveClose => { server.close(resolveClose); server.closeAllConnections(); }) };
 }
 
-export async function runHarness() {
+export async function runHarness({ performanceMode = false } = {}) {
   if (process.platform !== 'darwin') throw failure('MACOS_REQUIRED');
   const root = await mkdtemp('/tmp/tabularis-v1-');
-  const log = `/tmp/tabularis-v1-${randomUUID()}`;
+  const log = `/tmp/${performanceMode ? 'tabularis-x1-spatial-performance' : 'tabularis-v1'}-${randomUUID()}`;
   let server, native, compile;
   let before = {};
   try {
@@ -144,11 +149,11 @@ export async function runHarness() {
     compile = await boundedProcess('/usr/bin/xcrun', ['swiftc', join(HERE, 'WebViewHarness.swift'), '-framework', 'Cocoa', '-framework', 'WebKit', '-module-cache-path', join(root, 'module-cache'), '-Xcc', `-fmodules-cache-path=${join(root, 'clang-cache')}`, '-o', executable], { cwd: root });
     await writeFile(`${log}-compile.log`, Buffer.concat([compile.stdout, compile.stderr]), { mode: 0o600 });
     if (compile.code !== 0) throw failure('SWIFT_COMPILE_FAILED');
-    server = await serve(before, fixture.bytes);
+    server = await serve(before, fixture.bytes, { performanceMode });
     native = await boundedProcess(executable, [`http://127.0.0.1:${server.port}/index.html`, root], { cwd: root });
     await writeFile(`${log}-native.stdout.log`, native.stdout, { mode: 0o600 });
     await writeFile(`${log}-native.stderr.log`, native.stderr, { mode: 0o600 });
-    const report = validateReport(native.stdout);
+    const report = validateReport(native.stdout, { performanceMode });
     const after = await productionAssets();
     const drift = JSON.stringify(assetEvidence(before)) !== JSON.stringify(assetEvidence(after));
     const evidence = { ...report, production_assets: assetEvidence(before), assets_drift: drift, react: fixture.react, maplibre_version_in_bundle: before['index.js'].bytes.includes(Buffer.from('6.11.2')), node: process.version, architecture: process.arch, requests: server.requests, native_exit_code: native.code, logs: log };
@@ -170,9 +175,10 @@ export async function runHarness() {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  if (process.argv.length !== 2) { process.stderr.write('INVALID_ARGUMENT\n'); process.exitCode = 1; }
+  const performanceMode = process.argv.length === 3 && process.argv[2] === '--performance';
+  if (process.argv.length !== 2 && !performanceMode) { process.stderr.write('INVALID_ARGUMENT\n'); process.exitCode = 1; }
   else {
-    try { process.stdout.write(JSON.stringify(await runHarness(), null, 2) + '\n'); }
+    try { process.stdout.write(JSON.stringify(await runHarness({ performanceMode }), null, 2) + '\n'); }
     catch (error) { process.stderr.write(JSON.stringify({ code: error.code ?? 'HARNESS_FAILED', evidence: EVIDENCE, logs: error.logs ?? null }) + '\n'); process.exitCode = 1; }
   }
 }

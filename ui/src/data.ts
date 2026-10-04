@@ -49,7 +49,7 @@ export class LayerDataStore {
         : await call(this.service, "spatial.table_query", { ...input as Omit<Extract<typeof source, { kind: "table" }>, "kind">, page_size: 1000, next_token: token }, { connection_id: layer.connection_id }, controller.signal);
       const current = this.current.get(layer.layer_id);
       if (controller.signal.aborted || current?.generation !== layer.generation || current.sourceKey !== key) throw new DOMException("Stale layer", "AbortError");
-      const page = parsePage(structuredClone(response.data));
+      const page = parsePage(response.data);
       const bytes = pageBytes(page);
       const coordinates = page.features.reduce((sum, feature) => sum + countGeometry(feature.geometry), 0);
       const totalBytes = (more ? cached?.bytes ?? 0 : 0) + bytes;
@@ -72,7 +72,6 @@ export class LayerDataStore {
         if (page.features.some(feature => ids.has(feature.id))) throw new SpatialUiError("INVALID_ARGUMENT", "다음 page의 feature ID가 중복됩니다.");
         combined = { ...page, features: [...cached.page.features, ...page.features], row_references: [...cached.page.row_references, ...page.row_references], warnings: [...new Set([...cached.page.warnings, ...page.warnings])], feature_errors: [...cached.page.feature_errors, ...page.feature_errors], limits: { truncated: page.limits.truncated || cached.page.limits.truncated, reasons: [...new Set([...cached.page.limits.reasons, ...page.limits.reasons])] } };
       }
-      if (pageBytes(combined) > LAYER_LIMIT.bytes) throw new SpatialUiError("RESOURCE_LIMIT", "레이어 전체 metadata byte 상한을 초과했습니다.");
       const featureResultIds = new Map(more ? cached?.featureResultIds : []);
       if (response.result_id) for (const feature of page.features) featureResultIds.set(feature.id, response.result_id);
       const result = { page: combined, resultId: response.result_id, featureResultIds, bytes: totalBytes, coordinates: totalCoordinates, sourceKey: key, generation: layer.generation };

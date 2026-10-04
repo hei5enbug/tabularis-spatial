@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CHECKS, EVIDENCE, MAX_OUTPUT_BYTES, MAX_REPORT_BYTES, boundedProcess, fixtureHtml, routeFor, validateReport } from './run.mjs';
+import { PERFORMANCE_COORDINATES, PERFORMANCE_FEATURES, PERFORMANCE_PAGE_BYTES, PERFORMANCE_PHASES, coordinateCount, makePerformancePages, performanceExpectations } from './performance-data.mjs';
 
 function reportFixture() {
   return { pass: true, evidence: EVIDENCE, checks: Object.fromEntries(CHECKS.map(name => [name, true])),
@@ -230,4 +231,103 @@ test('상대 실행파일과 60초를 넘는 실행 요청은 시작하지 않�
   const actual = await Promise.all(cases.map(async ([executable, bounds]) => { try { await boundedProcess(executable, [], bounds); return null; } catch (error) { return error.code; } }));
   // then
   assert.deepEqual(actual, ['INVALID_PROCESS_BOUNDS', 'INVALID_PROCESS_BOUNDS', 'INVALID_PROCESS_BOUNDS']);
+});
+
+function performanceReportFixture() {
+  const pages = makePerformancePages(), dataset = performanceExpectations(pages);
+  return { ...reportFixture(), mode: 'performance', performance: { measurement: 'requestAnimationFrame_gap_ms', threshold_ms: 100, allowed_over_threshold: 1, preparation_before_measurement: true,
+    dataset, returned_pages: structuredClone(dataset.pages), worker_feature_count: 10000, worker_coordinate_count: 250000, rendered_feature_count: 10000, rendered_coordinate_count: 250000, listed_feature_count: 100, last_feature_id: 'v1-query:0:9999',
+    open_ack: { state_version: 0, rendered_version: 0, generation: 1, gui_applied: true }, viewport_ack: { state_version: 1, rendered_version: 1, generation: 2, gui_applied: true }, close_ack: { state_version: 1, rendered_version: 1, generation: 3, gui_applied: true },
+    metrics: { workers_started: 1, workers_terminated: 1, worker_messages: 20, worker_geojson: 10, gl_contexts: 1, gl_draws: 50, viewport_gl_draws: 2, assets_created: 2, assets_disposed: 2, subscriptions: 1, unsubscribed: 1, external_attempts: 0, worker_raw_canary: false },
+    cleanup: { worker_baseline: true, global_listener_baseline: true, assets_baseline: true, css_baseline: true, canvas_baseline: true, modal_baseline: true, root_shutdown: true, unsubscribed: true, ack_cleanup_complete: true, global_listeners_before: 0, global_listeners_after: 0 },
+    timing: { elapsed_ms: 160, sample_count: 10, over_100ms_count: 0, max_gap_ms: 16, phases: PERFORMANCE_PHASES.map(name => ({ name, sample_count: 2, over_100ms_count: 0, max_gap_ms: 16, elapsed_ms: 32 })), over_100ms: [] }, no_external_requests: true, query_snapshot_only: true } };
+}
+
+function validatePerformanceCases(inputs) {
+  return inputs.map(input => { try { return { report: validateReport(JSON.stringify(input), { performanceMode: true }) }; } catch (error) { return { code: error.code }; } });
+}
+
+test('대용량 fixture는 독립 계산으로 만 개 feature와 이십오만 좌표 및 byte 상한을 지킨다', () => {
+  // given
+  const pages = makePerformancePages();
+  // when
+  const actual = performanceExpectations(pages);
+  // then
+  assert.equal(pages.reduce((sum, page) => sum + page.features.length, 0), PERFORMANCE_FEATURES);
+  assert.equal(pages.flatMap(page => page.features).reduce((sum, feature) => sum + feature.geometry.coordinates.length, 0), PERFORMANCE_COORDINATES);
+  assert.equal(actual.feature_count, 10000);
+  assert.equal(actual.coordinate_count, 250000);
+  assert.equal(actual.pages.length, 10);
+  assert.ok(actual.pages.every(page => page.feature_count === 1000 && page.coordinate_count === 25000 && page.response_json_bytes <= PERFORMANCE_PAGE_BYTES));
+  assert.ok(actual.response_json_bytes <= 32 * 1024 * 1024 && actual.geojson_bytes <= 32 * 1024 * 1024);
+  assert.equal(coordinateCount(pages[0].features[0].geometry), 25);
+  assert.equal(new Set(pages.flatMap(page => page.features.map(feature => feature.id))).size, 10000);
+});
+
+test('명시된 performance 모드는 정상 두 cycle과 대용량 측정 증거를 모두 요구한다', () => {
+  // given
+  const input = performanceReportFixture();
+  // when
+  const actual = validateReport(JSON.stringify(input), { performanceMode: true });
+  // then
+  assert.equal(actual.pass, true);
+  assert.equal(actual.cycles.length, 2);
+  assert.equal(actual.performance.rendered_feature_count, 10000);
+});
+
+test('백 밀리초 초과 gap은 한 번만 허용하고 두 번이면 실패한다', () => {
+  // given
+  const once = performanceReportFixture();
+  Object.assign(once.performance.timing, { max_gap_ms: 101, over_100ms_count: 1, over_100ms: [{ phase: 'page', gap_ms: 101 }] });
+  Object.assign(once.performance.timing.phases[1], { max_gap_ms: 101, over_100ms_count: 1 });
+  const twice = structuredClone(once);
+  twice.performance.timing.over_100ms_count = 2; twice.performance.timing.over_100ms.push({ phase: 'render', gap_ms: 102 }); twice.performance.timing.max_gap_ms = 102;
+  Object.assign(twice.performance.timing.phases[2], { max_gap_ms: 102, over_100ms_count: 1 });
+  // when
+  const actual = validatePerformanceCases([once, twice]);
+  // then
+  assert.equal(actual[0].report.pass, true);
+  assert.equal(actual[1].code, 'INVALID_PERFORMANCE_REPORT');
+});
+
+test('측정 구간 누락과 counts 위조 및 close 미정리를 거부한다', () => {
+  // given
+  const names = ['worker_feature_count', 'worker_coordinate_count', 'rendered_feature_count'];
+  const inputs = names.map(name => { const input = performanceReportFixture(); input.performance[name]--; return input; });
+  const phase = performanceReportFixture(); phase.performance.timing.phases.pop(); inputs.push(phase);
+  const cleanup = performanceReportFixture(); cleanup.performance.cleanup.global_listeners_after = 1; inputs.push(cleanup);
+  const page = performanceReportFixture(); page.performance.returned_pages[9].feature_count--; inputs.push(page);
+  const ack = performanceReportFixture(); ack.performance.close_ack.rendered_version = null; inputs.push(ack);
+  const normal = performanceReportFixture(); normal.checks.stale_rejected = false; inputs.push(normal);
+  // when
+  const actual = validatePerformanceCases(inputs);
+  // then
+  assert.ok(actual.slice(0, -1).every(value => value.code === 'INVALID_PERFORMANCE_REPORT'));
+  assert.equal(actual.at(-1).code, 'INVALID_REPORT');
+});
+
+test('정상 모드와 performance 모드는 명시된 서로 다른 시작 함수만 호출한다', () => {
+  // given
+  const modes = [{}, { performanceMode: true }];
+  // when
+  const actual = modes.map(fixtureHtml);
+  // then
+  assert.ok(actual[0].includes('V1Fixture.start();') && !actual[0].includes('startPerformance'));
+  assert.ok(actual[1].includes('V1Fixture.startPerformance();') && !actual[1].includes('V1Fixture.start();'));
+});
+
+function sortedNativeJson(value) {
+  if (Array.isArray(value)) return value.map(sortedNativeJson);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedNativeJson(value[key])]));
+  return value;
+}
+
+test('Swift의 정렬된 JSON도 counts와 실제 측정 필드를 그대로 검증한다', () => {
+  // given
+  const input = sortedNativeJson(performanceReportFixture());
+  // when
+  const actual = validateReport(JSON.stringify(input), { performanceMode: true });
+  // then
+  assert.equal(actual.pass, true);
+  assert.equal(actual.performance.dataset.coordinate_count, 250000);
 });

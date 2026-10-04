@@ -3,6 +3,8 @@ import * as ReactJSXRuntime from "react/jsx-runtime";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type { FeaturePage, MapState } from "../../../ui/src/models";
+import { coordinateCount, makePerformancePages, performanceEnvelope, performanceExpectations, validatePerformance } from "./performance-data.mjs";
+import { globalListenerProbe, responsivenessProbe } from "./performance-probe.mjs";
 
 const EVIDENCE = "actual_macos_wkwebview_with_mock_service";
 const CANARY = "v1-own-original-property";
@@ -11,6 +13,10 @@ const metrics = { workers_started: 0, worker_messages: 0, worker_geojson: 0, wor
 const operations: string[] = [];
 const workerTypes = new Set<string>();
 const contexts = new WeakSet<object>();
+let performancePages: FeaturePage[] | null = null;
+let performanceWorker = { features: 0, coordinates: 0 };
+const returnedPages: Record<string, number>[] = [];
+let deferredFinish: ((report: Record<string, unknown>) => void) | null = null;
 const nativeWorker = window.Worker;
 class ObservedWorker extends nativeWorker {
   constructor(url: string | URL, options?: WorkerOptions) {
@@ -19,13 +25,26 @@ class ObservedWorker extends nativeWorker {
     this.addEventListener("message", () => { metrics.worker_messages++; });
   }
   postMessage(message: unknown, transfer?: Transferable[] | StructuredSerializeOptions): void {
-    const value = message as { type?: unknown; data?: { data?: unknown; type?: unknown } };
+    const value = message as { type?: unknown; data?: { data?: unknown; dataDiff?: { add?: { geometry: unknown }[] }; type?: unknown } };
     if (typeof value?.type === "string") {
       if (workerTypes.size < 32) workerTypes.add(value.type);
       const geojson = value.data?.data;
       if ((typeof geojson === "string" && geojson.includes('"FeatureCollection"')) || (geojson && typeof geojson === "object" && (geojson as { type?: unknown }).type === "FeatureCollection")) {
         metrics.worker_geojson++;
         if (JSON.stringify(geojson).includes(CANARY)) metrics.worker_raw_canary = true;
+        if (performancePages) {
+          const collection = typeof geojson === "string" ? JSON.parse(geojson) : geojson;
+          if (collection.features.length >= performanceWorker.features) performanceWorker = { features: collection.features.length, coordinates: collection.features.reduce((sum: number, feature: { geometry: unknown }) => sum + coordinateCount(feature.geometry), 0) };
+        }
+      }
+      const additions = value.data?.dataDiff?.add;
+      if (additions) {
+        metrics.worker_geojson++;
+        if (JSON.stringify(additions).includes(CANARY)) metrics.worker_raw_canary = true;
+        if (performancePages) {
+          performanceWorker.features += additions.length;
+          performanceWorker.coordinates += additions.reduce((sum, feature) => sum + coordinateCount(feature.geometry), 0);
+        }
       }
     }
     if (transfer === undefined) super.postMessage(message);
@@ -116,6 +135,15 @@ const service = {
     if (operations.length >= 64) throw new Error("REQUEST_LIMIT");
     const operation = String(request.operation); operations.push(operation);
     const input = request.input as Record<string, unknown>;
+    if (performancePages && operation === "spatial.query_result") {
+      if (request.connection_id !== "v1-inactive-connection" || input.result_id !== "v1-query" || input.result_set_index !== 0 || input.column_index !== 2 || input.page_size !== 1000 || input.longitude_mode !== "preserve" || input.skip_invalid !== false) throw new Error("WRONG_PERFORMANCE_SOURCE");
+      const index = input.next_token === null ? 0 : performancePages.findIndex(value => value.page.next_token === input.next_token) + 1;
+      if (index !== returnedPages.length || !performancePages[index] || (index === 0 && input.next_token !== null)) throw new Error("WRONG_PERFORMANCE_CURSOR");
+      const data = structuredClone(performancePages[index]);
+      const response = performanceEnvelope(request, data, index);
+      returnedPages.push({ index, feature_count: data.features.length, coordinate_count: data.features.reduce((sum, feature) => sum + coordinateCount(feature.geometry), 0), response_json_bytes: new TextEncoder().encode(JSON.stringify(response)).byteLength });
+      return response;
+    }
     if (operation === "spatial.query_result") {
       if (request.connection_id !== "v1-inactive-connection" || input.result_id !== "v1-query" || input.result_set_index !== 0 || input.column_index !== 2) throw new Error("WRONG_SNAPSHOT");
       return envelope(request, structuredClone(page), "v1-display-cache");
@@ -171,6 +199,7 @@ function apply(action: Apply["state"]["action"], state: MapState, generation: nu
 }
 function ackMatches(ack: Ack, version: number, generation: number) { return ack.gui_applied === true && ack.state_version === version && ack.rendered_version === version && ack.generation === generation; }
 function finish(report: Record<string, unknown>) {
+  if (deferredFinish) { const callback = deferredFinish; deferredFinish = null; callback(structuredClone(report)); return; }
   if (done) return; done = true; clearTimeout(watchdog);
   if (modalRoot) modal.closeModal();
   if (pluginRoot) { flushSync(() => pluginRoot?.unmount()); pluginRoot = null; }
@@ -266,4 +295,112 @@ export async function start() {
     const message = error instanceof Error ? error.message : "FIXTURE_FAILED";
     finish({ pass: false, code: /^[A-Z_]{1,64}$/.test(message) ? message : "FIXTURE_FAILED", evidence: EVIDENCE, phase, metrics, operations, worker_types: [...workerTypes] });
   }
+}
+
+function animationFrames(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+export async function startPerformance() {
+  const normal = await new Promise<Record<string, unknown>>(resolve => { deferredFinish = resolve; void start(); });
+  if (normal.pass !== true) { finish({ ...normal, mode: "performance" }); return; }
+  const baselineMetrics = { ...metrics };
+  let probe: ReturnType<typeof responsivenessProbe> | null = null;
+  let listeners: ReturnType<typeof globalListenerProbe> | null = null;
+  let evidence: Record<string, unknown> = {};
+  const measuredMetrics = () => ({ workers_started: metrics.workers_started - baselineMetrics.workers_started, worker_messages: metrics.worker_messages - baselineMetrics.worker_messages,
+    worker_geojson: metrics.worker_geojson - baselineMetrics.worker_geojson, workers_terminated: metrics.workers_terminated - baselineMetrics.workers_terminated,
+    gl_contexts: metrics.gl_contexts - baselineMetrics.gl_contexts, gl_draws: metrics.gl_draws - baselineMetrics.gl_draws,
+    assets_created: metrics.assets_created - baselineMetrics.assets_created, assets_disposed: metrics.assets_disposed - baselineMetrics.assets_disposed,
+    subscriptions: metrics.subscriptions - baselineMetrics.subscriptions, unsubscribed: metrics.unsubscribed - baselineMetrics.unsubscribed,
+    external_attempts: metrics.external_attempts - baselineMetrics.external_attempts, worker_raw_canary: metrics.worker_raw_canary });
+  try {
+    // given: dataset generation and independent counts precede the continuous UI measurement.
+    performancePages = makePerformancePages() as FeaturePage[];
+    const expected = performanceExpectations(performancePages);
+    requireCheck(expected.feature_count === 10000 && expected.coordinate_count === 250000 && expected.response_json_bytes <= 32 * 1024 * 1024 && expected.geojson_bytes <= 32 * 1024 * 1024 && expected.pages.every((value: { response_json_bytes: number }) => value.response_json_bytes <= 8 * 1024 * 1024 - 64 * 1024), "PERFORMANCE_DATASET_LIMIT");
+    map = { ...map, map_id: "v1-performance-map", name: "실제 WKWebView 대용량 지도", version: 0, viewport: { west: -15, east: 15, south: -10, north: 10 },
+      layers: map.layers.map(layer => ({ ...layer, generation: 1 })), selected_feature_refs: [] };
+    type Plugin = React.ComponentType<{ pluginId: string; context: Record<string, unknown> }>;
+    const plugin = (window as unknown as { __tabularis_plugin__: Plugin | { default?: Plugin } }).__tabularis_plugin__;
+    const component = typeof plugin === "function" ? plugin : plugin?.default;
+    requireCheck(typeof component === "function", "PLUGIN_ENTRY_MISSING");
+    const root = document.getElementById("plugin-root"); requireCheck(root, "ROOT_MISSING");
+    listeners = globalListenerProbe();
+    pluginRoot = createRoot(root); pluginRoot.render(React.createElement(component, { pluginId: "spatial", context: {} }));
+    await waitFor(() => handler !== null);
+    const baselineListeners = listeners.count();
+    const baselineDom = { css: document.querySelectorAll("link[rel=stylesheet]").length, canvas: document.querySelectorAll("canvas.maplibregl-canvas").length, modal: document.querySelectorAll("[role=dialog]").length };
+    evidence = { measurement: "requestAnimationFrame_gap_ms", threshold_ms: 100, allowed_over_threshold: 1, preparation_before_measurement: true, dataset: expected };
+    // when: run the complete open, paging, rendering, viewport, and close scenario.
+    probe = responsivenessProbe();
+    phase = "performance_open";
+    await animationFrames();
+    const opened = await apply("open", map, 1);
+    requireCheck(ackMatches(opened, 0, 1), "PERFORMANCE_OPEN_ACK_FAILED");
+    const select = () => [...document.querySelectorAll<HTMLSelectElement>("select")].find(value => value.parentElement?.textContent?.startsWith("Feature 선택"));
+    const uiCounts = () => [...document.querySelectorAll(".spatial-layer > p")].map(value => /^(\d+) features · (\d+) coordinates/.exec(value.textContent ?? "")).find(Boolean);
+    await waitFor(() => Number(uiCounts()?.[1]) === 1000 && select()?.options.length === 101);
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas.maplibregl-canvas");
+    requireCheck(canvas && canvas.width > 0 && canvas.height > 0, "PERFORMANCE_CANVAS_MISSING");
+    const css = document.querySelector<HTMLLinkElement>("link[rel=stylesheet]");
+    requireCheck(css?.sheet && css.sheet.cssRules.length > 0, "PERFORMANCE_CSS_MISSING");
+    for (let index = 1; index < performancePages.length; index++) {
+      phase = "performance_page"; probe.phase("page");
+      await animationFrames();
+      const more = [...document.querySelectorAll<HTMLButtonElement>("button")].find(value => value.textContent === "더 보기");
+      requireCheck(more && !more.disabled, "PERFORMANCE_PAGE_BUTTON_MISSING");
+      more.click();
+      await waitFor(() => Number(uiCounts()?.[1]) === (index + 1) * 1000 && select()?.options.length === 101);
+      phase = "performance_render"; probe.phase("render");
+      await animationFrames();
+    }
+    requireCheck(returnedPages.length === 10 && performanceWorker.features === 10000 && performanceWorker.coordinates === 250000, "PERFORMANCE_RENDER_COUNTS_FAILED");
+    const renderedCount = Number(uiCounts()?.[1]);
+    const renderedCoordinates = Number(uiCounts()?.[2]);
+    const pageInput = [...document.querySelectorAll<HTMLInputElement>("input")].find(value => value.parentElement?.textContent?.startsWith("Feature 목록 페이지"));
+    requireCheck(pageInput, "PERFORMANCE_FEATURE_PAGE_INPUT_MISSING");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(pageInput, "100");
+    pageInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => select()?.options.item(100)?.value === "v1-query:0:9999");
+    const lastFeature = select()!.options.item(100)!.value;
+    const listedCount = select()!.options.length - 1;
+    const more = [...document.querySelectorAll<HTMLButtonElement>("button")].find(value => value.textContent === "더 보기");
+    requireCheck(more?.disabled, "PERFORMANCE_FINAL_PAGE_NOT_REACHED");
+    phase = "performance_viewport"; probe.phase("viewport");
+    await animationFrames();
+    const beforeViewportDraws = metrics.gl_draws;
+    map = { ...map, version: 1, viewport: { west: -16, east: 16, south: -11, north: 11 } };
+    const viewport = await apply("update", map, 2);
+    await animationFrames();
+    requireCheck(ackMatches(viewport, 1, 2) && metrics.gl_draws > beforeViewportDraws, "PERFORMANCE_VIEWPORT_ACK_FAILED");
+    phase = "performance_close"; probe.phase("close");
+    await animationFrames();
+    const closed = await apply("close", map, 3);
+    const ackCleanup = metrics.workers_terminated === metrics.workers_started && metrics.assets_disposed === metrics.assets_created
+      && document.querySelectorAll("link[rel=stylesheet]").length === baselineDom.css && document.querySelectorAll("canvas.maplibregl-canvas").length === baselineDom.canvas && document.querySelectorAll("[role=dialog]").length === baselineDom.modal && listeners.count() === baselineListeners;
+    await animationFrames();
+    const afterListeners = listeners.count();
+    const closeDraws = metrics.gl_draws;
+    flushSync(() => pluginRoot?.unmount()); pluginRoot = null;
+    await waitFor(() => metrics.unsubscribed === baselineMetrics.unsubscribed + 1);
+    await animationFrames();
+    const timing = probe.stop();
+    const resources = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+    const noExternal = metrics.external_attempts === 0 && resources.every(resource => !/^https?:/.test(resource.name) || new URL(resource.name).origin === ownOrigin);
+    evidence = { ...evidence, returned_pages: structuredClone(returnedPages), worker_feature_count: performanceWorker.features, worker_coordinate_count: performanceWorker.coordinates,
+      rendered_feature_count: renderedCount, rendered_coordinate_count: renderedCoordinates, listed_feature_count: listedCount, last_feature_id: lastFeature, open_ack: opened, viewport_ack: viewport, close_ack: closed, viewport_interaction: "explicit_map_apply", metrics: { ...measuredMetrics(), viewport_gl_draws: closeDraws - beforeViewportDraws }, timing,
+      cleanup: { worker_baseline: metrics.workers_terminated === metrics.workers_started, global_listener_baseline: afterListeners === baselineListeners, global_listeners_before: baselineListeners, global_listeners_after: afterListeners,
+        assets_baseline: metrics.assets_disposed === metrics.assets_created, css_baseline: document.querySelectorAll("link[rel=stylesheet]").length === baselineDom.css, canvas_baseline: document.querySelectorAll("canvas.maplibregl-canvas").length === baselineDom.canvas,
+        modal_baseline: document.querySelectorAll("[role=dialog]").length === baselineDom.modal, root_shutdown: root.childElementCount === 0, unsubscribed: metrics.unsubscribed === baselineMetrics.unsubscribed + 1, ack_cleanup_complete: ackCleanup },
+      no_external_requests: noExternal, query_snapshot_only: operations.every(value => ["spatial.query_result", "map.selection.set", "spatial.feature"].includes(value)) };
+    // then: require both preserved normal evidence and the independent performance evidence.
+    requireCheck(timing.over_100ms_count < 2, "PERFORMANCE_RESPONSIVENESS_FAILED");
+    validatePerformance(evidence, expected);
+    finish({ ...normal, pass: true, code: "PASS", mode: "performance", performance: evidence });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "PERFORMANCE_FAILED";
+    finish({ ...normal, pass: false, code: /^[A-Z_]{1,64}$/.test(message) ? message : "PERFORMANCE_FAILED", mode: "performance", phase,
+      performance: { ...evidence, returned_pages: structuredClone(returnedPages), worker_feature_count: performanceWorker.features, worker_coordinate_count: performanceWorker.coordinates, metrics: { ...measuredMetrics() }, timing: probe?.stop() ?? null } });
+  } finally { listeners?.restore(); }
 }

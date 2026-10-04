@@ -5,7 +5,7 @@ import { HostFixture, openFixture, applyThroughHost } from "./host";
 import { FakeMap } from "./fake-map";
 import { applyRequest, harness, mapFixture, pageFixture, resetHarness, response } from "./fixtures";
 import { validateRequest } from "./schema";
-import { WORLD } from "../src/models";
+import { WORLD, object } from "../src/models";
 
 vi.mock("maplibre-gl", async () => ({ Map: (await import("./fake-map")).FakeMap, setWorkerUrl: vi.fn() }));
 vi.mock("@tabularis/plugin-api", async () => {
@@ -442,5 +442,76 @@ describe("host modal과 common operations mock 검증", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(harness.closeModal).toHaveBeenCalledTimes(1);
     expect(FakeMap.instances[0].removed).toBe(true);
+  });
+});
+
+function optionPage(offset: number, count: number, more: boolean) {
+  const page = structuredClone(pageFixture);
+  page.features = Array.from({ length: count }, (_, index) => ({ ...structuredClone(pageFixture.features[0]), id: `original-snapshot:2:${offset + index}` }));
+  page.row_references = page.features.map((feature, index) => ({ feature_id: feature.id, identity: null, snapshot_id: "original-snapshot", row_ordinal: offset + index }));
+  page.page = { next_token: more ? "options-next" : null, has_more: more, resume_mode: more ? "materialized" : "none" };
+  return page;
+}
+function mockOptionPages() {
+  const pages = [optionPage(0, 500, true), optionPage(500, 500, false)];
+  const fallback = vi.mocked(harness.service.call).getMockImplementation()!;
+  vi.mocked(harness.service.call).mockImplementation(async request => {
+    if (request.operation !== "spatial.query_result") return fallback(request);
+    harness.requests.push(structuredClone(request));
+    const page = pages[object(request.input).next_token ? 1 : 0];
+    return { ...response(request, structuredClone(page), "display-cache"), page: page.page };
+  });
+}
+async function navigateFeatureOptions() {
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Feature 다음 페이지" })); });
+  const nextFirst = (screen.getByLabelText("Feature 선택") as HTMLSelectElement).options[1].value;
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Feature 이전 페이지" })); });
+  const previousFirst = (screen.getByLabelText("Feature 선택") as HTMLSelectElement).options[1].value;
+  await act(async () => { fireEvent.change(screen.getByLabelText("Feature 목록 페이지"), { target: { value: "5" } }); });
+  const select = screen.getByLabelText("Feature 선택") as HTMLSelectElement;
+  const last = select.options[100].value;
+  await act(async () => { fireEvent.change(select, { target: { value: last } }); });
+  return { nextFirst, previousFirst, last, optionCount: select.options.length };
+}
+async function reloadFeatureOptions() {
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "더 보기" })); });
+  await waitFor(() => expect(screen.getByText(/1000 features/)).not.toBeNull());
+  const retained = (screen.getByLabelText("Feature 목록 페이지") as HTMLInputElement).value;
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "스타일 적용" })); });
+  const generationReset = (screen.getByLabelText("Feature 목록 페이지") as HTMLInputElement).value;
+  await act(async () => { fireEvent.change(screen.getByLabelText("Feature 목록 페이지"), { target: { value: "3" } }); });
+  const changed = structuredClone(harness.map);
+  changed.version++;
+  changed.layers[0].source = { kind: "query_result", result_id: "original-snapshot", result_set_index: 2, column_index: 5, skip_invalid: false, longitude_mode: "preserve" };
+  await applyThroughHost(applyRequest("update", changed, 20));
+  return { retained, generationReset, sourceReset: (screen.getByLabelText("Feature 목록 페이지") as HTMLInputElement).value };
+}
+
+describe("Feature 선택 목록 페이지", () => {
+  it("백 개 목록의 이전과 다음 및 숫자 이동은 모든 원본 식별자에 접근한다", async () => {
+    // given
+    mockOptionPages();
+    await openFixture();
+    // when
+    const actual = await navigateFeatureOptions();
+    // then
+    expect(actual).toEqual({ nextFirst: "original-snapshot:2:100", previousFirst: "original-snapshot:2:0", last: "original-snapshot:2:499", optionCount: 101 });
+    expect(screen.getByText("Feature 목록 401–500 / 500개")).not.toBeNull();
+    expect(harness.requests.find(request => request.operation === "map.selection.set")?.input).toEqual({ feature_refs: [{ layer_id: "fixture-layer", feature_id: "original-snapshot:2:499" }] });
+    expect(harness.requests.filter(request => request.operation === "spatial.query_result")).toHaveLength(1);
+    expect(FakeMap.instances[0].sources.get("spatial:fixture-layer")?.data).toMatchObject({ features: expect.arrayContaining([{ type: "Feature", id: "original-snapshot:2:499:499", geometry: pageFixture.features[0].geometry, properties: { feature_id: "original-snapshot:2:499", layer_id: "fixture-layer" } }]) });
+  });
+
+  it("더 보기는 목록 페이지를 유지하고 generation이나 source 변경은 처음으로 돌아간다", async () => {
+    // given
+    mockOptionPages();
+    await openFixture();
+    await act(async () => { fireEvent.change(screen.getByLabelText("Feature 목록 페이지"), { target: { value: "3" } }); });
+    // when
+    const actual = await reloadFeatureOptions();
+    // then
+    expect(actual).toEqual({ retained: "3", generationReset: "1", sourceReset: "1" });
+    expect(harness.requests.filter(request => request.operation === "spatial.query_result")).toHaveLength(3);
+    expect(harness.requests.some(request => request.operation === "query.execute")).toBe(false);
   });
 });

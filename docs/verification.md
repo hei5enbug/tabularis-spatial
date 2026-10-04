@@ -1,6 +1,6 @@
 # 검증 현황과 재현
 
-코드는 실제 Azure 검증을 제외하고 로컬·플랫폼 검증을 진행하고 있다. 사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다. 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
+공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다. Windows native CI는 마지막 빌드 환경 수정을 확인 중이다. 사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다. 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
 ## 확인한 동작
 
@@ -10,20 +10,25 @@
 | 기존 PostgreSQL 드라이버 | unit 402개, 실제 PostGIS 74개 통과 | 원본 EWKB·geometry/geography·SRID·Z/M·NULL/EMPTY·읽기 전용·취소 |
 | 공통 서비스 공간 조회 | 실제 PG17/18 조회 4개, PG18 대용량 export 1개 통과 | 불변 쿼리 결과·원 SQL 재실행 0회·변환·페이지·연결별 취소·32 MiB 초과 명시 export |
 | 지도 UI | React 검사 97개, typecheck/build 통과 | 레이어·속성·선택·상태·오래된 응답 차단·artifact 저장 호출 |
-| WebView 렌더링 | macOS WKWebView 22개 통과 | 실제 WebGL·로컬 CSS/worker·모달 열기/닫기. 서비스는 mock이며 실제 Tauri 통합 증거와 구분 |
+| WebView 렌더링 | macOS WKWebView 22개·열기/닫기 두 번 통과 | 실제 WebGL·로컬 CSS/worker·모달 열기/닫기. 서비스는 mock이며 실제 Tauri 통합 증거와 구분 |
+| 대용량 지도 | 실제 WKWebView에서 10,000 feature·250,000 coordinates 통과 | 최대 rAF 간격 50 ms, 100 ms 초과 0회, worker·listener·asset 회수 확인 |
+| 실제 앱 통합 | 실제 CLI/MCP parity 1개와 Tauri GUI 통합 1개 통과 | 원본 결과·페이지·export 비교, 별도 프로세스 지도 적용 ACK·선택·버전 충돌·닫기/재열기 |
 | 공통 transport | 전체 서비스 검사 204개 통과, 기존 자식 프로세스 검사 1개 별도 실행 | operation 스키마·정책·결과·오류·CLI/MCP registry·실제 로컬 IPC |
 | 네이티브 진입점 | native 16개·지도 ACK 1개·산출물 취소 1개·CLI 3개·MCP 7개·기존 회귀 23개, host check 통과 | Tauri 명령 권한·별도 native core의 IPC·정확한 SQL·비밀 입력·bounded 출력. 실제 앱 화면 검사는 별도 |
 | 쿼리 화면 | 격리 검사 32개, Notebook 16개, frontend build/typecheck/ESLint 통과 | 고정된 연결·정확한 SQL·결과 참조·세션·취소·명시적 쓰기 승인 |
 | 기존 SQL Server 드라이버 | unit 244개·conformance 3개·synthetic Azure 33개·clippy 통과 | Entra 사용자/앱 인증 경로·토큰 갱신·TLS 검증·원본 SQL·CRUD. 실제 Azure는 미실행 |
 | Cosmos | unit 625개·protocol 14개·synthetic live harness 74개 통과 | 공식 SDK의 문서/페이지/RU/429/ETag 계약, 실제 Azure는 미실행 |
 | 실제 설치 | macOS ARM64와 Rosetta x64 Cosmos ZIP, Spatial ZIP을 수정 호스트 설치기로 검사 | ZIP 모든 파일의 SHA·권한·asset MIME, 동봉 Node 실행, initialize/shutdown, 빈 PATH |
-| OS 공통 설치 검사 | macOS에서 Spatial ZIP 실제 설치 1개 통과 | 동일 테스트를 Linux/Windows/macOS CI에 등록. 다른 OS의 실행 결과는 CI로 확인 |
+| OS 공통 설치 검사 | macOS ARM·Intel와 Linux x64 실제 호스트 설치 통과 | Windows는 OpenSSL 빌드용 Perl 설정 수정 후 CI 확인 중 |
 | 소스 재현 | 공개 upstream 3개를 고정 SHA로 fetch하고 patch 적용 후 Git tree 검증 통과 | 로컬 비공개 호스트 레포를 내려받을 필요 없음 |
 | 독립 디렉터리 빌드 | 한글·공백 경로에서 frozen install, 공통 계약/API, UI build/test, ZIP 생성 통과 | 기존 작업 폴더의 node_modules나 dist를 복사하지 않음 |
 
 각 행은 해당 변경 시점의 검사다. 서로 다른 실행의 통과 수를 합산해 최종 단일 실행 결과로 표시하지 않는다. 중간 실패는 삭제하지 않았으며 수정 뒤 필요한 범위를 다시 검사했다. 호스트 전체 strict clippy는 기존 코드의 경고 때문에 실패한다. 변경 영역의 새 경고와 기존 경고를 구분해 검사했으며 전체 clippy 통과라고 주장하지 않는다.
 
-독립 빌드의 Spatial ZIP은 488,269 bytes·33 files이며 SHA-256은 `df9032d9c3f4ed4b87197ae1b4365bbc1598de6e1a9a2e7620cbb03a37ff9d65`다. 앞서 수정 호스트의 실제 설치기로 검사한 ZIP과 byte 단위로 동일하다.
+초기 독립 빌드 ZIP은 488,269 bytes·33 files이며 SHA-256은
+`df9032d9c3f4ed4b87197ae1b4365bbc1598de6e1a9a2e7620cbb03a37ff9d65`다.
+증분 렌더링 수정 후 실제 앱에 적용한 최종 ZIP은 488,669 bytes·33 files이며 SHA-256은
+`04db4b3480a865e515c4dbaa2b12c0e0c1f98c34043be5eb6e74d67aca166f85`다.
 
 ## 실제 fixture
 
@@ -62,8 +67,46 @@ cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
 ## 아직 구분해야 하는 완료 조건
 
 - 실제 Azure SQL의 MFA/앱 인증·갱신·TLS·CRUD와 실제 Cosmos의 교차 파티션 정렬·집계·페이지 재개는 사용자 결정에 따라 보류한다.
-- 실제 Tauri GUI와 별도 CLI/MCP의 최종 지도 적용 검사는 제품 통합 결과가 확보된 뒤 기록한다.
 - Linux·Windows의 native 설치 결과는 GitHub Actions의 실제 실행 결과를 기록한다. workflow 파일 작성이나 synthetic 플랫폼 검사를 native 실행으로 간주하지 않는다.
-- 대용량 지도에서 입력 지연과 종료 후 자원 회수에 관한 최종 성능 수치는 아직 확정하지 않았다.
 
 정확한 배포 소스는 [upstream manifest](../integration/upstreams.json)의 원본 SHA·수정 소스 SHA·Git tree·패치 SHA-256으로 고정한다. CI 로그와 배포 ZIP의 파일별 checksum을 함께 보관한다.
+
+## 최종 통합 실행 기록
+
+2026-10-04 macOS ARM64에서 사용자 프로필과 분리한 실제 실행 파일을 사용했다.
+GUI 식별자는 `dev.tabularis.spatial-verification-01a1000d`이며 실제 Azure에는 접속하지 않았다.
+
+| 검사 | 관찰 결과 | 로컬 실행 기록 |
+|---|---|---|
+| CLI/MCP parity | 실제 PostGIS 쿼리·페이지·공간 변환·artifact 파일 내용 동일, 쓰기 거부 | `/private/tmp/tn-WtVrgB/e/report.json` |
+| 실제 GUI·CLI·MCP | 시작 직후 첫 지도 요청과 이후 조작 모두 적용 완료 ACK, 충돌 시 기존 상태 유지 | `/private/tmp/tn-oOvGkj/e/report.json` |
+| 대용량 WKWebView | 전체 1만 객체·25만 좌표, 목록 100개/페이지, 마지막 객체 접근, 100 ms 초과 0회 | `/tmp/tabularis-x1-spatial-performance-c0a68ced-13fc-4e12-bbc0-ea5c451ee0d6-result.json` |
+| 관련 회귀 | UI 47개, 데이터 제한 11개, 호스트 서비스 훅 17개 통과 | `/tmp/tabularis-x1-spatial-incremental-focused.log`, `/tmp/tabularis-x1-spatial-data-focused.log`, `/tmp/tabularis-x1-h-renderer-hook-first.log` |
+
+마지막 GUI 검사에 사용한 호스트 소스는 `1ba68de491db06c2d82a18e12107c34fd82341ec`다.
+실행 파일 SHA-256은 `c33663234fd9e4e588f051161ffd6d22ea2940e763c98dd3eb07343327d014fd`다.
+전체 결과의 반복 전송을 새 페이지의 증분 갱신으로 바꿨다. 성능 fixture의 크기와 100 ms 기준은 유지했다.
+최초 성능 실패와 시작 직후 GUI 요청 유실도 원본 로그에 보존했다.
+
+실제 앱 검사는 `TABULARIS_TEST_HOST_BINARY`, `TABULARIS_TEST_POSTGIS_PLUGIN`,
+`TABULARIS_TEST_POSTGIS_MANIFEST`, `TABULARIS_TEST_POSTGIS17_PORT`, `TABULARIS_TEST_SPATIAL_ZIP`을
+전용 로컬 fixture의 절대 경로·포트로 지정한 뒤 호스트에서 실행한다. ZIP 옆의 `.sha256` 파일도 필요하다.
+
+```sh
+pnpm test:service:parity
+pnpm test:spatial:webview
+```
+
+수정한 호스트를 위의 격리 식별자로 빌드해야 한다. 기존 사용자 앱을 검사용으로 종료하거나 조작하지 않는다.
+WKWebView 성능 검사는 Spatial 저장소의
+`node tests/integration/wkwebview/run.mjs --performance`로 실행한다.
+이 검사는 실제 MapLibre·WebGL을 사용하지만 서비스는 mock이므로 실제 앱 검사와 구분한다.
+
+| 계획 요구 사항 | 구현·검증 상태 |
+|---|---|
+| R01–R04 | 기존 PostgreSQL 드라이버 재사용과 실제 PG17/18 공간·SRID·쿼리/테이블 조회 검증 완료 |
+| R05–R08 | 지도 UI·대용량·취소·transport 동등성·프로세스 간 지도 적용 검증 완료 |
+| R09–R10 | 읽기 전용·비밀 보호·연결/session 격리·지도 버전 검증 완료 |
+| R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료, 실제 Azure 검증은 사용자 지시로 보류 |
+| R13 | 패키지·호스트 패치·독립 빌드 완료, Windows native CI 확인 중 |
+| R14 | 위 실행 근거에 따름. 보류·미완료 항목을 전체 통과로 합산하지 않음 |

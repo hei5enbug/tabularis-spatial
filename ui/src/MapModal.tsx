@@ -239,6 +239,15 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
 
 function LayerPanel({ layer, data, exporting, onMore, onExport, onSelect, onUpdate, onRemove }: { layer: LayerState; data: LayerDataStore; exporting: boolean; onMore(): void; onExport(): void; onSelect(id: string): void; onUpdate(visible?: boolean, style?: Style): void; onRemove(): void }) {
   const values = data.get(layer.layer_id);
+  const [featurePage, setFeaturePage] = useState(0);
+  const featureSourceKey = JSON.stringify([layer.connection_id, layer.source]);
+  useEffect(() => { setFeaturePage(0); }, [featureSourceKey, layer.generation]);
+  const featureCount = values?.page.features.length ?? 0;
+  const pageCount = Math.max(1, Math.ceil(featureCount / 100));
+  const currentPage = Math.min(featurePage, pageCount - 1);
+  const featureOffset = currentPage * 100;
+  const listedFeatures = values?.page.features.slice(featureOffset, featureOffset + 100) ?? [];
+  const moveFeaturePage = (page: number) => { if (Number.isSafeInteger(page)) setFeaturePage(Math.max(0, Math.min(page, pageCount - 1))); };
   const [color, setColor] = useState(layer.style.point?.color?.slice(0, 7) ?? "#3b82f6");
   const [opacity, setOpacity] = useState(layer.style.polygon?.opacity ?? 0.35);
   const [radius, setRadius] = useState(layer.style.point?.radius ?? 5);
@@ -260,6 +269,11 @@ function LayerPanel({ layer, data, exporting, onMore, onExport, onSelect, onUpda
     {values?.page.limits.truncated ? <p role="status">truncated: {values.page.limits.reasons.join(", ")}</p> : null}
     {values?.page.warnings.map(warning => <p key={warning}>{warning}</p>)}
     {values?.page.feature_errors.map((failure, index) => <p key={index} role="status">행 {failure.index}: {failure.code} — {failure.message}</p>)}
-    <label>Feature 선택<select value="" onChange={event => { if (event.target.value) onSelect(event.target.value); }}><option value="">Feature 선택</option>{values?.page.features.map(feature => <option key={feature.id} value={feature.id}>{feature.id}{feature.geometry === null ? " (NULL/EMPTY)" : ""}</option>)}</select></label>
+    <p aria-live="polite">Feature 목록 {featureCount ? featureOffset + 1 : 0}–{featureOffset + listedFeatures.length} / {featureCount}개</p>
+    <button type="button" disabled={currentPage === 0} onClick={() => moveFeaturePage(currentPage - 1)}>Feature 이전 페이지</button>
+    <label>Feature 목록 페이지<input type="number" min="1" max={pageCount} disabled={!featureCount} value={currentPage + 1} onChange={event => moveFeaturePage(event.target.valueAsNumber - 1)} /></label>
+    <span> / {pageCount} 페이지</span>
+    <button type="button" disabled={currentPage + 1 >= pageCount} onClick={() => moveFeaturePage(currentPage + 1)}>Feature 다음 페이지</button>
+    <label>Feature 선택<select value="" onChange={event => { if (event.target.value) onSelect(event.target.value); }}><option value="">Feature 선택</option>{listedFeatures.map(feature => <option key={feature.id} value={feature.id}>{feature.id}{feature.geometry === null ? " (NULL/EMPTY)" : ""}</option>)}</select></label>
   </section>;
 }
