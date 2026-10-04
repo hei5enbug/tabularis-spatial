@@ -10,7 +10,7 @@ React·MapLibre UI, 공간 데이터 모델, 수정 호스트와 기존 PostgreS
 | `crates/tabularis-spatial-core/` | 공간 결과, 원본 식별자, 표시 범위와 제한 검증 |
 | `integration/` | 고정 upstream revision에 적용하는 호스트·기존 드라이버 패치와 SHA256 |
 | `scripts/bootstrap.mjs` | 별도 checkout 생성과 패치 검증 |
-| [tabularis-cosmos](https://github.com/hei5enbug/tabularis-cosmos) | Cosmos NoSQL 드라이버와 문서 작업 공간 |
+| [tabularis-azure](https://github.com/hei5enbug/tabularis-azure) | Azure 연동: Cosmos NoSQL 드라이버, 문서 작업 공간과 Entra·Azure CLI 인증 UI |
 
 필요한 호스트 버전은 **`0.26.1-spatial.1`**입니다.
 일반 Tabularis 배포본에 지도 ZIP만 설치하는 구성은 지원하지 않습니다.
