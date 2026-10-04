@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "host_version": "0.26.1-spatial.1",
+  "repositories": [
+    {
+      "id": "host",
+      "directory": "tabularis-host",
+      "url": "https://github.com/TabularisDB/tabularis.git",
+      "base_commit": "b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4",
+      "source_commit": "c84a9556fceebefb0d8337957aebec55d20e0b36",
+      "tree": "0ce7b828a4621eb521f954a326e4d03c8fe1e89b",
+      "patch": "patches/host.patch",
+      "patch_sha256": "05302029bda9f8768ea93430b37b9eec5378bfdc879f3605e35726886ff288cc"
+    },
+    {
+      "id": "postgresql",
+      "directory": "tabularis-postgresql-plugin",
+      "url": "https://github.com/TabularisDB/tabularis-postgresql-plugin.git",
+      "base_commit": "963f358e5de037014db37337db3dbaea560aee77",
+      "source_commit": "1902b30434f2f8e8122590e5e35fea855fdd9229",
+      "tree": "dc045c7f65e96a5634387bdb8de8570ede0d4ab8",
+      "patch": "patches/postgresql.patch",
+      "patch_sha256": "f20a90940599faf86accc8cf1af0f5035799d2fc0ea5ecdb4aab15d60a1928e1"
+    },
+    {
+      "id": "sqlserver",
+      "directory": "tabularis-sqlserver-plugin",
+      "url": "https://github.com/TabularisDB/tabularis-sqlserver-plugin.git",
+      "base_commit": "58c47b374ddc472457d8c946572f4bc8fd930978",
+      "source_commit": "906192d7561c41e0c5097ef797d2e7e5e8b7cc47",
+      "tree": "bdc5894cf279ce92782f8d0c8abe5bb9dfea32c3",
+      "patch": "patches/sqlserver.patch",
+      "patch_sha256": "2f03523fd0112304500bc7b9db1397ffdbf0cd418f08ff6fe119bbc15c88b65b"
+    }
+  ]
+}
