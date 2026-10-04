@@ -88,8 +88,10 @@ export function packageBundle({ source, output, limits: requestedLimits } = {}) 
     zipPublished = true;
     publish(nextChecksum, `${zipPath}.sha256`);
     checksumPublished = true;
-    const parentFD = fs.openSync(parent, fs.constants.O_RDONLY);
-    try { fs.fsyncSync(parentFD); } finally { fs.closeSync(parentFD); }
+    if (process.platform !== 'win32') {
+      const parentFD = fs.openSync(parent, fs.constants.O_RDONLY);
+      try { fs.fsyncSync(parentFD); } finally { fs.closeSync(parentFD); }
+    }
     result = { ok: true, sha256: zipInfo.sha256, bytes: zipInfo.bytes, files: stage.entries.size, dependency_roots: nodes.length, license_packages: notices.length, platform: 'any', arch: 'any' };
   } catch (error) {
     failure = error instanceof PackageError ? error : new PackageError('PACKAGE_FAILED');

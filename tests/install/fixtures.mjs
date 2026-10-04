@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { packageBundle } from '../../scripts/package/index.mjs';
 
 export const CLI = fileURLToPath(new URL('../../scripts/package/cli.mjs', import.meta.url));
+export function directoryLinkType(platform = process.platform) { return platform === 'win32' ? 'junction' : 'dir'; }
+export function auditPython(platform = process.platform, env = { TABULARIS_S3_TEST_PYTHON: process.env.TABULARIS_S3_TEST_PYTHON }) {
+  const executable = env.TABULARIS_S3_TEST_PYTHON ?? (platform === 'win32' ? undefined : '/usr/bin/python3');
+  if (typeof executable !== 'string' || !executable || executable.includes('\0') || !(platform === 'win32' ? path.win32 : path.posix).isAbsolute(executable)) throw new Error('CAPABILITY_UNAVAILABLE');
+  return executable;
+}
 export const MANIFEST = Object.freeze({
   id: 'spatial', name: 'spatial', kind: 'extension', version: '0.1.0', description: '오프라인 공간 지도', service_protocol: 1,
   capabilities: { schemas: false, views: false, routines: false, file_based: false, identifier_quote: '"', alter_primary_key: false, manage_tables: false, explain: false, spatial_v1: true },
@@ -60,7 +66,7 @@ export function attempt(f, options = {}) {
 }
 
 export function audit(file) {
-  const python = '/usr/bin/python3';
+  const python = auditPython();
   const script = `import sys,json,zipfile,hashlib,base64\nwith zipfile.ZipFile(sys.argv[1]) as z:\n assert z.testzip() is None\n out={i.filename:{'bytes':len(z.read(i)),'sha256':hashlib.sha256(z.read(i)).hexdigest(),'data':base64.b64encode(z.read(i)).decode(),'mode':i.external_attr>>16,'method':i.compress_type,'timestamp':list(i.date_time)} for i in z.infolist()}\n print(json.dumps(out))`;
   const child = spawnSync(python, ['-c', script, file], { encoding: 'utf8', timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
   if (child.status !== 0) throw new Error('independent ZIP audit failed');

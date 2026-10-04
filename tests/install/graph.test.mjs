@@ -2,14 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fixture, addPackage, packageAndAudit, attempt, json, write } from './fixtures.mjs';
+import { fixture, addPackage, packageAndAudit, attempt, json, write, directoryLinkType } from './fixtures.mjs';
 
 test('dependency 순환을 패키징하면 canonical root를 한 번만 처리한다', t => {
   // given
   const f = fixture(t, { dependencies: { child: '1.0.0' } });
   const child = addPackage(f.maplibre, 'child', '1.0.0', { dependencies: { 'maplibre-gl': '6.11.2' } });
   fs.mkdirSync(path.join(child, 'node_modules'), { recursive: true });
-  fs.symlinkSync(f.maplibre, path.join(child, 'node_modules/maplibre-gl'));
+  fs.symlinkSync(f.maplibre, path.join(child, 'node_modules/maplibre-gl'), directoryLinkType());
   // when
   const actual = packageAndAudit(f);
   // then
@@ -71,7 +71,7 @@ test('설치된 package directory link는 외부 link 없이 license만 복사�
   const f = fixture(t, { dependencies: { linked: '1' } });
   const linked = addPackage(path.join(f.root, 'public-packages'), 'linked');
   fs.mkdirSync(path.join(f.maplibre, 'node_modules'));
-  fs.symlinkSync(linked, path.join(f.maplibre, 'node_modules/linked'));
+  fs.symlinkSync(linked, path.join(f.maplibre, 'node_modules/linked'), directoryLinkType());
   // when
   const actual = packageAndAudit(f);
   // then

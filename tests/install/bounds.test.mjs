@@ -66,7 +66,7 @@ test('asset 부모 directory가 symlink이면 정규파일이어도 거부한다
   // given
   const f = fixture(t);
   fs.renameSync(path.join(f.source, 'ui/dist'), path.join(f.root, 'linked-assets'));
-  fs.symlinkSync(path.join(f.root, 'linked-assets'), path.join(f.source, 'ui/dist'));
+  fs.symlinkSync(path.join(f.root, 'linked-assets'), path.join(f.source, 'ui/dist'), process.platform === 'win32' ? 'junction' : 'dir');
   // when
   const actual = attempt(f);
   // then

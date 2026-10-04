@@ -29,7 +29,9 @@ test('원본 공간 asset을 패키징하면 고정 항목과 전체 SHA가 보�
   assert.ok(Object.values(actual.files).every(value => value.mode === 0o100644 && value.method === 8 && value.timestamp.join(',') === '1980,1,1,0,0,0'));
   assert.equal(fs.readFileSync(`${f.output}.sha256`, 'utf8'), `${actual.result.sha256}\n`);
   assert.equal(sha256(fs.readFileSync(f.output)), actual.result.sha256);
-  assert.equal(fs.statSync(f.output).mode & 0o777, 0o600);
+  assert.equal(fs.lstatSync(f.output).isFile(), true);
+  assert.equal(fs.lstatSync(f.output).isSymbolicLink(), false);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f.output).mode & 0o777, 0o600);
   assert.equal(fs.readdirSync(f.root).some(name => name.startsWith('.tabularis-spatial-package-')), false);
 });
 
