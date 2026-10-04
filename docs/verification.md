@@ -1,6 +1,9 @@
 # 검증 현황과 재현
 
-공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다. Windows native CI는 마지막 빌드 환경 수정을 확인 중이다. 사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다. 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
+공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다.
+Windows 호스트는 컴파일됐지만 실행 시 DLL 진입점 오류가 발생해 native 설치 검증이 미완료다.
+사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
+아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
 ## 확인한 동작
 
@@ -19,7 +22,7 @@
 | 기존 SQL Server 드라이버 | unit 244개·conformance 3개·synthetic Azure 33개·clippy 통과 | Entra 사용자/앱 인증 경로·토큰 갱신·TLS 검증·원본 SQL·CRUD. 실제 Azure는 미실행 |
 | Cosmos | unit 625개·protocol 14개·synthetic live harness 74개 통과 | 공식 SDK의 문서/페이지/RU/429/ETag 계약, 실제 Azure는 미실행 |
 | 실제 설치 | macOS ARM64와 Rosetta x64 Cosmos ZIP, Spatial ZIP을 수정 호스트 설치기로 검사 | ZIP 모든 파일의 SHA·권한·asset MIME, 동봉 Node 실행, initialize/shutdown, 빈 PATH |
-| OS 공통 설치 검사 | macOS ARM·Intel와 Linux x64 실제 호스트 설치 통과 | Windows는 OpenSSL 빌드용 Perl 설정 수정 후 CI 확인 중 |
+| OS 공통 설치 검사 | macOS ARM·Intel와 Linux x64 실제 호스트 설치 통과 | Windows는 컴파일 성공 뒤 실행 시 `STATUS_ENTRYPOINT_NOT_FOUND`로 실패 |
 | 소스 재현 | 공개 upstream 3개를 고정 SHA로 fetch하고 patch 적용 후 Git tree 검증 통과 | 로컬 비공개 호스트 레포를 내려받을 필요 없음 |
 | 독립 디렉터리 빌드 | 한글·공백 경로에서 frozen install, 공통 계약/API, UI build/test, ZIP 생성 통과 | 기존 작업 폴더의 node_modules나 dist를 복사하지 않음 |
 
@@ -69,6 +72,12 @@ cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
 - 실제 Azure SQL의 MFA/앱 인증·갱신·TLS·CRUD와 실제 Cosmos의 교차 파티션 정렬·집계·페이지 재개는 사용자 결정에 따라 보류한다.
 - Linux·Windows의 native 설치 결과는 GitHub Actions의 실제 실행 결과를 기록한다. workflow 파일 작성이나 synthetic 플랫폼 검사를 native 실행으로 간주하지 않는다.
 
+최종 코드 `6d05c3c`의 [CI 실행 37193323425](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37193323425)에서
+Linux·Mac Intel 설치와 기존 드라이버 검사는 통과했다.
+Windows 2022는 OpenSSL 및 호스트 컴파일까지 성공했지만 검사 실행 파일 시작 시
+`0xc0000139 (STATUS_ENTRYPOINT_NOT_FOUND)`로 종료됐다.
+실패한 DLL·심볼은 이 로그만으로 특정할 수 없으며 Windows 설치 통과로 간주하지 않는다.
+
 정확한 배포 소스는 [upstream manifest](../integration/upstreams.json)의 원본 SHA·수정 소스 SHA·Git tree·패치 SHA-256으로 고정한다. CI 로그와 배포 ZIP의 파일별 checksum을 함께 보관한다.
 
 ## 최종 통합 실행 기록
@@ -108,5 +117,5 @@ WKWebView 성능 검사는 Spatial 저장소의
 | R05–R08 | 지도 UI·대용량·취소·transport 동등성·프로세스 간 지도 적용 검증 완료 |
 | R09–R10 | 읽기 전용·비밀 보호·연결/session 격리·지도 버전 검증 완료 |
 | R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료, 실제 Azure 검증은 사용자 지시로 보류 |
-| R13 | 패키지·호스트 패치·독립 빌드 완료, Windows native CI 확인 중 |
+| R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux 설치 통과, Windows DLL 진입점 문제 미해결 |
 | R14 | 위 실행 근거에 따름. 보류·미완료 항목을 전체 통과로 합산하지 않음 |
