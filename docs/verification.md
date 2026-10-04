@@ -1,8 +1,7 @@
 # 검증 현황과 재현
 
 공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다.
-Windows 호스트는 컴파일됐지만 라이브러리 검사 실행 파일에 DLL 진입점 오류가 발생했다.
-검사 파일의 Windows manifest를 보정했으며 native 설치 결과는 재확인 중이다.
+Windows 라이브러리 검사 실행 파일의 manifest를 보정한 뒤 실제 설치 검사도 통과했다.
 사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
@@ -20,10 +19,10 @@ Windows 호스트는 컴파일됐지만 라이브러리 검사 실행 파일에 
 | 공통 transport | 전체 서비스 검사 204개 통과, 기존 자식 프로세스 검사 1개 별도 실행 | operation 스키마·정책·결과·오류·CLI/MCP registry·실제 로컬 IPC |
 | 네이티브 진입점 | native 16개·지도 ACK 1개·산출물 취소 1개·CLI 3개·MCP 7개·기존 회귀 23개, host check 통과 | Tauri 명령 권한·별도 native core의 IPC·정확한 SQL·비밀 입력·bounded 출력. 실제 앱 화면 검사는 별도 |
 | 쿼리 화면 | 격리 검사 32개, Notebook 16개, frontend build/typecheck/ESLint 통과 | 고정된 연결·정확한 SQL·결과 참조·세션·취소·명시적 쓰기 승인 |
-| 기존 SQL Server 드라이버 | unit 244개·conformance 3개·synthetic Azure 33개·clippy 통과 | Entra 사용자/앱 인증 경로·토큰 갱신·TLS 검증·원본 SQL·CRUD. 실제 Azure는 미실행 |
-| Cosmos | unit 625개·protocol 14개·synthetic live harness 74개 통과 | 공식 SDK의 문서/페이지/RU/429/ETag 계약, 실제 Azure는 미실행 |
+| 기존 SQL Server 드라이버 | unit 244개·conformance 3개·synthetic Azure 33개·clippy 통과 | Entra 사용자/앱 인증 경로·토큰 갱신·TLS 검증·원본 SQL·CRUD. 실제 CLI 토큰 획득 확인, 데이터 연결 수용 검사는 미완료 |
+| Cosmos | unit 625개·protocol 14개·synthetic live harness 74개 통과 | 공식 SDK의 문서/페이지/RU/429/ETag 계약, 실제 CLI 토큰 획득 확인, 데이터 연결 수용 검사는 미완료 |
 | 실제 설치 | macOS ARM64와 Rosetta x64 Cosmos ZIP, Spatial ZIP을 수정 호스트 설치기로 검사 | ZIP 모든 파일의 SHA·권한·asset MIME, 동봉 Node 실행, initialize/shutdown, 빈 PATH |
-| OS 공통 설치 검사 | macOS ARM·Intel와 Linux x64 실제 호스트 설치 통과 | Windows는 컴파일 성공 뒤 실행 시 `STATUS_ENTRYPOINT_NOT_FOUND`로 실패 |
+| OS 공통 설치 검사 | macOS ARM·Intel와 Linux x64 실제 호스트 설치 통과 | Windows도 검사 manifest 보정 후 실제 설치 통과 |
 | 소스 재현 | 공개 upstream 3개를 고정 SHA로 fetch하고 patch 적용 후 Git tree 검증 통과 | 로컬 비공개 호스트 레포를 내려받을 필요 없음 |
 | 독립 디렉터리 빌드 | 한글·공백 경로에서 frozen install, 공통 계약/API, UI build/test, ZIP 생성 통과 | 기존 작업 폴더의 node_modules나 dist를 복사하지 않음 |
 
@@ -81,7 +80,7 @@ Windows 2022는 OpenSSL 및 호스트 컴파일까지 성공했지만 검사 실
 의존성 코드를 확인한 결과 `rfd`는 Common Controls v6를 요구하지만 Tauri의 기본 리소스는
 일반 앱 실행 파일에만 연결됐다. 검사 실행 파일에 같은 manifest를 넣도록 CI를 보정했다.
 수정 `e34fdda`의 [Windows 단독 실행 37195121887](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37195121887)에서
-결과를 확인하며, Mac·Linux·드라이버 검사는 반복하지 않는다.
+설치 검사가 통과했다. Mac·Linux·드라이버 검사는 반복하지 않았다.
 
 정확한 배포 소스는 [upstream manifest](../integration/upstreams.json)의 원본 SHA·수정 소스 SHA·Git tree·패치 SHA-256으로 고정한다. CI 로그와 배포 ZIP의 파일별 checksum을 함께 보관한다.
 
@@ -122,5 +121,26 @@ WKWebView 성능 검사는 Spatial 저장소의
 | R05–R08 | 지도 UI·대용량·취소·transport 동등성·프로세스 간 지도 적용 검증 완료 |
 | R09–R10 | 읽기 전용·비밀 보호·연결/session 격리·지도 버전 검증 완료 |
 | R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료, 실제 Azure 검증은 사용자 지시로 보류 |
-| R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux 설치 통과, Windows 검사 manifest 보정 후 검증 중 |
+| R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux·Windows 실제 설치 통과 |
 | R14 | 위 실행 근거에 따름. 보류·미완료 항목을 전체 통과로 합산하지 않음 |
+
+
+## Azure CLI 어댑터 확인
+
+2026-10-04에 로그인된 포털과 같은 사용자로 Azure CLI 로그인과 리소스 설정 조회를 확인했다.
+앱의 Rust 어댑터로 SQL·Cosmos 토큰 획득을 실제로 실행했고 두 대상 모두 통과했다.
+Cosmos 토큰의 대상 값은 공개 리소스 ID로 반환되어 Cosmos 연결에만 해당 값을 허용했다.
+SQL에는 이를 허용하지 않는다. 원본 토큰, 사용자·테넌트·구독 식별자와 실제 리소스 이름은 이 기록에 넣지 않았다.
+
+인증 어댑터의 경계·계정 변경·시간 초과·출력 상한 검사와 기존 OAuth 회귀가 통과했다.
+Cosmos 연결 단위 검사, 두 드라이버의 CLI 소스 UI 검사, TypeScript 검사와 UI 빌드도 통과했다.
+
+실제 SQL 테스트 DB에 대한 읽기 전용 연결은 `AUTH_REQUIRED`로 실패했다.
+실제 Cosmos 개발 계정에서 공식 SDK의 데이터베이스 메타데이터 조회는 HTTP 403으로 실패했다.
+해당 사용자에게 직접 배정된 Cosmos 데이터 역할은 없었고 계정에는 IP 허용 목록이 있었다.
+두 결과는 인증·데이터 권한·네트워크 검토가 더 필요하다는 증거다. 역할이나 방화벽은 변경하지 않았다.
+DB나 문서의 생성·수정·삭제는 실행하지 않았다. 전체 Azure 연동 수용 검사는 완료 상태가 아니다.
+
+Windows 설치의 이전 보류 항목은
+[단독 실행 37195121887](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37195121887)의 성공으로 종료했다.
+이 결과는 Azure CLI 어댑터 추가 전 호스트에 대한 설치 검사이며 새 인증 코드는 해당 CI에서 실행하지 않았다.

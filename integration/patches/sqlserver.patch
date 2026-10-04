@@ -1,3 +1,25 @@
+diff --git a/.gitignore b/.gitignore
+index a66c68777b23ab4be8970e5beccd2d005c002379..51f53916a5e44723e88b4f856f6e57c7e0d4d9b0 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -5,3 +5,17 @@ ui/node_modules/
+ ui/dist/
+ explain/node_modules/
+ .DS_Store
++
++.azure/
++azure-local/
++*.azure.local.json
++*.token
++*.kubeconfig
++.env
++.env.*
++credentials.json
++secrets.json
++*.pem
++*.key
++*.pfx
++*.p12
 diff --git a/.tabularium b/.tabularium
 index a963919146e1b65e27aaa587ecfbf8a543122279..c4255945fadf2f6146949f74be46e14384c2e5a9 100644
 --- a/.tabularium
@@ -9013,7 +9035,7 @@ index 0000000000000000000000000000000000000000..92f0ff3fb7b55db3521d2798c1c3cbd2
 +  yallist@3.1.1: {}
 diff --git a/ui/src/AuthPanel.tsx b/ui/src/AuthPanel.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..f28d97beb1846ee59fe97d736df485ffc29888a5
+index 0000000000000000000000000000000000000000..74b3803615a1ab2653e682f7becc8e3d9a2f21de
 --- /dev/null
 +++ b/ui/src/AuthPanel.tsx
 @@ -0,0 +1,219 @@
@@ -9078,7 +9100,7 @@ index 0000000000000000000000000000000000000000..f28d97beb1846ee59fe97d736df485ff
 +      if (input) input.value = "";
 +      scope.dispose();
 +    };
-+  }, [connectionId, form.client, form.tenant, principal, form.mode, scope, service]);
++  }, [connectionId, form.client, form.tenant, form.source, principal, form.mode, scope, service]);
 +
 +  const applyStatus = useCallback((next: AuthStatus) => {
 +    setStatus(next);
@@ -9238,10 +9260,10 @@ index 0000000000000000000000000000000000000000..f28d97beb1846ee59fe97d736df485ff
 +}
 diff --git a/ui/src/SQLServerAuthFields.test.tsx b/ui/src/SQLServerAuthFields.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..413e9850373f28b89d68befad8c62321ce4659a2
+index 0000000000000000000000000000000000000000..b8379c4253f6d0bcdeee6ce5b761d7c68f559e94
 --- /dev/null
 +++ b/ui/src/SQLServerAuthFields.test.tsx
-@@ -0,0 +1,566 @@
+@@ -0,0 +1,579 @@
 +import { StrictMode, useState } from "react";
 +import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 +import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -9808,12 +9830,25 @@ index 0000000000000000000000000000000000000000..413e9850373f28b89d68befad8c62321
 +  expect(disabled("로그인")).toBe(false);
 +  expect(screen.getByText("저장된 연결의 인증 설정을 확인했습니다.")).toBeTruthy();
 +});
++
++
++test("Azure CLI를 선택하면 공식 클라이언트를 지정하고 직접 변경을 막는다", async () => {
++  // given
++  const view = mount();
++  // when
++  await change("로그인 소스", "azure_cli");
++  // then
++  expect(view.setExtraField).toHaveBeenCalledWith("auth_source", "azure_cli");
++  expect(view.setExtraField).toHaveBeenCalledWith("client_id", "04b07795-8ddb-461a-bbee-02f9e1bf7b46");
++  expect((screen.getByLabelText("클라이언트 ID") as HTMLInputElement).readOnly).toBe(true);
++  expect(screen.queryByRole("textbox", { name: "클라이언트 비밀" })).toBeNull();
++});
 diff --git a/ui/src/SQLServerAuthFields.tsx b/ui/src/SQLServerAuthFields.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..38c7ff54c9faa7afb400e8b4ebc0a1855407d627
+index 0000000000000000000000000000000000000000..7596a03bb07c11be8e00ce2579394404923cb884
 --- /dev/null
 +++ b/ui/src/SQLServerAuthFields.tsx
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,51 @@
 +import { useEffect } from "react";
 +import type { SlotComponentProps } from "@tabularis/plugin-api";
 +import AuthPanel from "./AuthPanel";
@@ -9833,10 +9868,11 @@ index 0000000000000000000000000000000000000000..38c7ff54c9faa7afb400e8b4ebc0a185
 +  const hidden = form.mode !== "sql_password";
 +  useEffect(() => { hideCredentials?.(hidden); }, [hideCredentials, hidden]);
 +  const entra = form.mode === "entra_user" || form.mode === "entra_service_principal";
-+  const key = JSON.stringify([fields.connectionId, form.mode, form.tenant, form.client]);
++  const key = JSON.stringify([fields.connectionId, form.mode, form.tenant, form.client, form.source]);
 +
 +  const changeMode = (mode: AuthMode) => {
 +    fields.setExtraField?.("auth_mode", mode);
++    if (form.source) fields.setExtraField?.("auth_source", "oauth");
 +    fields.setExtraField?.("integrated_auth", mode === "integrated" ? "true" : "");
 +  };
 +
@@ -9850,10 +9886,12 @@ index 0000000000000000000000000000000000000000..38c7ff54c9faa7afb400e8b4ebc0a185
 +        <option value="entra_service_principal">Microsoft Entra 서비스 주체</option>
 +      </select>
 +    </label>
++    {form.mode === "entra_user" && <label>로그인 소스<select aria-label="로그인 소스" value={form.source ?? "oauth"} onChange={event => { fields.setExtraField?.("auth_source", event.target.value); if (event.target.value === "azure_cli") fields.setExtraField?.("client_id", "04b07795-8ddb-461a-bbee-02f9e1bf7b46"); }}><option value="oauth">앱에서 로그인</option><option value="azure_cli">Azure CLI (az login)</option></select></label>}
++    {form.source === "azure_cli" && <p>이 컴퓨터에서 az login을 먼저 실행하세요. 앱 로그아웃은 Azure CLI 세션을 종료하지 않습니다.</p>}
 +    {entra && <>
 +      <label>테넌트 ID<input aria-label="테넌트 ID" value={form.tenant} autoComplete="off"
 +        onChange={(event) => fields.setExtraField?.("tenant_id", event.target.value)} /></label>
-+      <label>클라이언트 ID<input aria-label="클라이언트 ID" value={form.client} autoComplete="off"
++      <label>클라이언트 ID<input aria-label="클라이언트 ID" value={form.client} readOnly={form.source === "azure_cli"} autoComplete="off"
 +        onChange={(event) => fields.setExtraField?.("client_id", event.target.value)} /></label>
 +      <AuthPanel key={key} connectionId={fields.connectionId} form={form} />
 +    </>}
@@ -9987,7 +10025,7 @@ index 0000000000000000000000000000000000000000..5d0c00ff3759a0f8f890a3a9f08a0d25
 +});
 diff --git a/ui/src/auth.ts b/ui/src/auth.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..16cc45c43cdcbbe0d34779610b154c3adcdd880d
+index 0000000000000000000000000000000000000000..78a09ee71c3cbe0914d4e7f29a299a561687d524
 --- /dev/null
 +++ b/ui/src/auth.ts
 @@ -0,0 +1,193 @@
@@ -9996,7 +10034,7 @@ index 0000000000000000000000000000000000000000..16cc45c43cdcbbe0d34779610b154c3a
 +export type AuthMode = "sql_password" | "integrated" | "entra_user" | "entra_service_principal";
 +export type EntraMode = Extract<AuthMode, "entra_user" | "entra_service_principal">;
 +export type Persistence = "session" | "keychain";
-+export interface AuthSettings { mode: AuthMode | null; tenant: string; client: string }
++export interface AuthSettings { mode: AuthMode | null; tenant: string; client: string; source?: "oauth" | "azure_cli" }
 +export interface AuthStatus {
 +  jobId: string;
 +  state: "pending" | "interaction_required" | "authenticated" | "cancelled" | "failed";
@@ -10030,14 +10068,14 @@ index 0000000000000000000000000000000000000000..16cc45c43cdcbbe0d34779610b154c3a
 +  const raw = extra.auth_mode || (extra.integrated_auth === "true" ? "integrated" : "sql_password");
 +  const mode = ["sql_password", "integrated", "entra_user", "entra_service_principal"].includes(raw)
 +    ? raw as AuthMode : null;
-+  return { mode, tenant: extra.tenant_id ?? "", client: extra.client_id ?? "" };
++  return { mode, tenant: extra.tenant_id ?? "", client: extra.client_id ?? "", ...(extra.auth_source ? { source: extra.auth_source as "oauth" | "azure_cli" } : {}) };
 +}
 +
 +export function savedSettings(value: unknown): AuthSettings | null {
 +  if (!object(value)) return null;
 +  const extra = object(value.extra) ? value.extra : {};
 +  const fields: Record<string, string> = {};
-+  for (const key of ["auth_mode", "integrated_auth", "tenant_id", "client_id"]) {
++  for (const key of ["auth_mode", "auth_source", "integrated_auth", "tenant_id", "client_id"]) {
 +    const field = Object.prototype.hasOwnProperty.call(extra, key) ? extra[key] : value[key];
 +    if (field !== undefined && typeof field !== "string") return null;
 +    fields[key] = typeof field === "string" ? field : "";
@@ -10050,7 +10088,7 @@ index 0000000000000000000000000000000000000000..16cc45c43cdcbbe0d34779610b154c3a
 +  const matches = data.connections.filter((item: unknown) => object(item) && item.connection_id === connectionId);
 +  if (matches.length !== 1 || !object(matches[0]) || matches[0].driver !== "sqlserver") return false;
 +  const stored = savedSettings(matches[0].settings);
-+  return stored !== null && stored.mode === form.mode && stored.tenant === form.tenant && stored.client === form.client;
++  return stored !== null && stored.mode === form.mode && stored.tenant === form.tenant && stored.client === form.client && (stored.source ?? "oauth") === (form.source ?? "oauth");
 +}
 +
 +export function request<O extends ServiceRequest["operation"]>(

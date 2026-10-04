@@ -38,6 +38,28 @@ index 0000000000000000000000000000000000000000..6212c8f7ad4d552067f4320ba30bc158
 +        run: cargo test --locked --manifest-path packages/service-contracts/rust/Cargo.toml
 +      - name: Check Ajv and Rust fixture agreement
 +        run: pnpm --filter @tabularis/service-contracts test
+diff --git a/.gitignore b/.gitignore
+index 2464961186dca4d8b6247a4ee452740673634391..40efa12661270c71b2634d4353d34b3de1f16228 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -40,3 +40,17 @@ AGENTS.override.md
+ .claude/*
+ !.claude/skills/
+ !.claude/skills/**
++
++.azure/
++azure-local/
++*.azure.local.json
++*.token
++*.kubeconfig
++.env
++.env.*
++credentials.json
++secrets.json
++*.pem
++*.key
++*.pfx
++*.p12
 diff --git a/package.json b/package.json
 index 583cffe6ed2903766d7d12695d4771a994f50f5c..386919eb8e3fcefc880647f60b9c6c748f165308 100644
 --- a/package.json
@@ -21264,10 +21286,10 @@ index 0000000000000000000000000000000000000000..8a35c31fb78511e977d0d918780349c9
 +}
 diff --git a/src-tauri/src/services/auth.rs b/src-tauri/src/services/auth.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7b276ec67
+index 0000000000000000000000000000000000000000..b2dac210e55c668e50089920712c6d006863051d
 --- /dev/null
 +++ b/src-tauri/src/services/auth.rs
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,257 @@
 +use std::{collections::HashMap, sync::{Arc, Mutex}, time::Duration};
 +use async_trait::async_trait;
 +use serde_json::{json, Value};
@@ -21280,7 +21302,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +const MAX_AUTH_JOBS: usize = 64;
 +
 +#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-+pub struct AuthConfig { pub connection_id: String, pub mode: String, pub tenant_id: String, pub client_id: String, pub scope: String, pub credential_identity: String }
++pub struct AuthConfig { pub connection_id: String, pub mode: String, pub source: String, pub tenant_id: String, pub client_id: String, pub scope: String, pub credential_identity: String }
 +
 +impl AuthConfig {
 +    pub fn from_connection(connection: &SavedConnection) -> ServiceResult<Option<Self>> {
@@ -21288,7 +21310,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +        let mode = settings["auth_mode"].as_str().unwrap_or("");
 +        if !matches!(mode, "entra_user" | "entra_service_principal") { return Ok(None); }
 +        let config = Self {
-+            connection_id: connection.id.clone(), mode: mode.into(),
++            connection_id: connection.id.clone(), mode: mode.into(), source: settings["auth_source"].as_str().unwrap_or("oauth").into(),
 +            tenant_id: uuid::Uuid::parse_str(settings["tenant_id"].as_str().unwrap_or("")).map_err(|_| failure(ErrorCode::InvalidArgument))?.to_string(), client_id: uuid::Uuid::parse_str(settings["client_id"].as_str().unwrap_or("")).map_err(|_| failure(ErrorCode::InvalidArgument))?.to_string(),
 +            scope: if connection.driver == "cosmos-nosql" { "https://cosmos.azure.com/.default" } else { "https://database.windows.net/.default" }.into(),
 +            credential_identity: format!("{}:{}", connection.credential_ref.as_deref().unwrap_or(&connection.id), connection.auth_revision),
@@ -21298,6 +21320,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +    }
 +    pub fn validate(&self) -> ServiceResult<()> {
 +        if !matches!(self.mode.as_str(), "entra_user" | "entra_service_principal") || uuid::Uuid::parse_str(&self.tenant_id).is_err() || uuid::Uuid::parse_str(&self.client_id).is_err() || !matches!(self.scope.as_str(), "https://database.windows.net/.default" | "https://cosmos.azure.com/.default") { return Err(failure(ErrorCode::InvalidArgument)); }
++        if !matches!(self.source.as_str(), "oauth" | "azure_cli") || (self.source == "azure_cli" && (self.mode != "entra_user" || self.client_id != super::azure_cli::CLIENT_ID)) { return Err(failure(ErrorCode::InvalidArgument)); }
 +        Ok(())
 +    }
 +}
@@ -21377,7 +21400,13 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +        let _guard = tokio::time::timeout(Duration::from_millis(deadline_ms), lock.lock()).await.map_err(|_| failure(ErrorCode::DeadlineExceeded))?;
 +        let minimum_expiry = now_ms().saturating_add(deadline_ms).saturating_add(REFRESH_MARGIN_MS);
 +        let cached = self.state.lock().map_err(|_| failure(ErrorCode::AuthRequired))?.grants.get(&config).cloned();
-+        let grant = match cached {
++        let grant = if config.source == "azure_cli" {
++            let generation = self.generation(&connection.id)?;
++            let grant = tokio::time::timeout(Duration::from_millis(deadline_ms), self.provider.azure_cli(&config)).await.map_err(|_| failure(ErrorCode::DeadlineExceeded))??;
++            if grant.expires_at_ms < minimum_expiry { return Err(failure(ErrorCode::AuthExpired)); }
++            self.install(&config, grant.clone(), generation, false).await?;
++            grant
++        } else { match cached {
 +            Some(grant) if grant.expires_at_ms >= minimum_expiry => grant,
 +            _ => {
 +                let generation = self.generation(&connection.id)?;
@@ -21403,7 +21432,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +                self.install(&config, grant.clone(), generation, persistent).await?;
 +                grant
 +            }
-+        };
++        } };
 +        Ok(Some(TransientAuth::EntraToken { access_token: grant.access_token, expires_at_ms: grant.expires_at_ms, tenant_id: config.tenant_id, client_id: config.client_id, principal_id: grant.principal_id, scope: config.scope }))
 +    }
 +    pub async fn begin(self: &Arc<Self>, connection: &SavedConnection, requested_mode: &str, caller: &CallerContext, persistence: super::credentials::SecretPersistence) -> ServiceResult<Value> {
@@ -21420,7 +21449,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +            state.jobs.insert(id.clone(), AuthJob { connection_id: connection.id.clone(), caller_id: caller.caller_id.clone(), owner: caller.owner_instance_id.clone(), signal: signal.clone(), state: "pending".into(), expires_at_ms: now_ms().saturating_add(AUTH_TTL_MS), challenge: None, error: None });
 +        }
 +        if let Some(config) = config {
-+            if config.mode == "entra_user" {
++            if config.mode == "entra_user" && config.source == "oauth" {
 +                let device = match self.provider.device_begin(&config).await { Ok(device) => device, Err(error) => { self.set_job(&id, "failed", Some(error.code)); return Err(error); } };
 +                {
 +                    let mut state = self.state.lock().map_err(|_| failure(ErrorCode::AuthRequired))?;
@@ -21494,7 +21523,7 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +    pub async fn import_refresh(&self, connection: &SavedConnection, refresh: Secret, persistence: super::credentials::SecretPersistence, deadline_ms: u64) -> ServiceResult<()> {
 +        if serde_json::from_str::<Value>(refresh.expose()).is_ok() { return Err(failure(ErrorCode::InvalidArgument)); }
 +        let config = AuthConfig::from_connection(connection)?.ok_or_else(|| failure(ErrorCode::AuthRequired))?;
-+        if config.mode != "entra_user" { return Err(failure(ErrorCode::InvalidArgument)); }
++        if config.mode != "entra_user" || config.source != "oauth" { return Err(failure(ErrorCode::InvalidArgument)); }
 +        let generation = self.generation(&connection.id)?;
 +        let mut grant = tokio::time::timeout(Duration::from_millis(deadline_ms), self.provider.refresh(&config, &refresh, None)).await.map_err(|_| failure(ErrorCode::DeadlineExceeded))??;
 +        if grant.expires_at_ms < now_ms().saturating_add(deadline_ms).saturating_add(REFRESH_MARGIN_MS) { return Err(failure(ErrorCode::AuthExpired)); }
@@ -21517,6 +21546,71 @@ index 0000000000000000000000000000000000000000..1d45b9ca990569e2a749fc687d693cc7
 +        }
 +        Ok(())
 +    }
++}
+diff --git a/src-tauri/src/services/azure_cli.rs b/src-tauri/src/services/azure_cli.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2e704d1cc06b889855554e34c0a49ab096ae01b
+--- /dev/null
++++ b/src-tauri/src/services/azure_cli.rs
+@@ -0,0 +1,59 @@
++use std::{process::Stdio, time::Duration};
++use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
++use serde::Deserialize;
++use tokio::{io::AsyncReadExt, process::Command};
++use super::{auth::{AuthConfig, OAuthGrant}, contracts::ErrorCode, credentials::Secret, error::{failure, ServiceResult}, storage::now_ms};
++
++pub const CLIENT_ID: &str = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
++const COSMOS_AUDIENCE: &str = "a232010e-820c-4083-83bb-3ace5fc29d0b";
++const MAX_OUTPUT: usize = 64 * 1024;
++
++pub async fn acquire(config: &AuthConfig) -> ServiceResult<OAuthGrant> {
++    config.validate()?;
++    let executable = which::which("az").map_err(|_| failure(ErrorCode::CapabilityUnavailable))?;
++    let mut command = Command::new(executable);
++    command.args(["account", "get-access-token", "--tenant", &config.tenant_id, "--scope", &config.scope,
++        "--output", "json", "--only-show-errors"])
++        .env("AZURE_LOGGING_ENABLE_LOG_FILE", "false").env("AZURE_CORE_COLLECT_TELEMETRY", "false");
++    execute(config, command, Duration::from_secs(30)).await
++}
++
++pub(super) async fn execute(config: &AuthConfig, mut command: Command, timeout: Duration) -> ServiceResult<OAuthGrant> {
++    command
++        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
++    let mut child = command.spawn().map_err(|_| failure(ErrorCode::CapabilityUnavailable))?;
++    let mut stdout = child.stdout.take().ok_or_else(|| failure(ErrorCode::AuthRequired))?.take((MAX_OUTPUT + 1) as u64);
++    let result = tokio::time::timeout(timeout, async {
++        let mut bytes = Vec::new();
++        stdout.read_to_end(&mut bytes).await.map_err(|_| failure(ErrorCode::AuthRequired))?;
++        if bytes.len() > MAX_OUTPUT { for byte in &mut bytes { unsafe { std::ptr::write_volatile(byte, 0); } } return Err(failure(ErrorCode::ResourceLimit)); }
++        let output = Secret::new(bytes).map_err(|_| failure(ErrorCode::AuthRequired))?;
++        if !child.wait().await.map_err(|_| failure(ErrorCode::AuthRequired))?.success() { return Err(failure(ErrorCode::AuthRequired)); }
++        parse(config, &output, now_ms())
++    }).await.map_err(|_| failure(ErrorCode::DeadlineExceeded))?;
++    result
++}
++
++#[derive(Deserialize)]
++struct TokenOutput { #[serde(rename = "accessToken")] access_token: String, #[serde(rename = "tokenType")] token_type: String, tenant: String, expires_on: u64 }
++
++pub(super) fn parse(config: &AuthConfig, output: &Secret, now: u64) -> ServiceResult<OAuthGrant> {
++    config.validate()?;
++    let token: TokenOutput = serde_json::from_str(output.expose()).map_err(|_| failure(ErrorCode::AuthRequired))?;
++    let access_token = Secret::new(token.access_token.into_bytes()).map_err(|_| failure(ErrorCode::AuthRequired))?;
++    if token.token_type != "Bearer" || token.tenant != config.tenant_id { return Err(failure(ErrorCode::AuthRequired)); }
++    let parts: Vec<_> = access_token.expose().split('.').collect();
++    if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) { return Err(failure(ErrorCode::AuthRequired)); }
++    let claims: serde_json::Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).map_err(|_| failure(ErrorCode::AuthRequired))?).map_err(|_| failure(ErrorCode::AuthRequired))?;
++    let principal = claims["oid"].as_str().ok_or_else(|| failure(ErrorCode::AuthRequired))?;
++    let audience = config.scope.strip_suffix("/.default").ok_or_else(|| failure(ErrorCode::InvalidArgument))?;
++    let expiry = claims["exp"].as_u64().ok_or_else(|| failure(ErrorCode::AuthRequired))?;
++    let actual_audience = claims["aud"].as_str().map(|value| value.trim_end_matches('/'));
++    let audience_matches = actual_audience == Some(audience) || (config.scope == "https://cosmos.azure.com/.default" && actual_audience == Some(COSMOS_AUDIENCE));
++    if claims["tid"] != config.tenant_id || claims["appid"].as_str().or_else(|| claims["azp"].as_str()) != Some(CLIENT_ID)
++        || !audience_matches
++        || uuid::Uuid::parse_str(principal).is_err() { return Err(failure(ErrorCode::AuthRequired)); }
++    let expires_at_ms = expiry.min(token.expires_on).checked_mul(1000).ok_or_else(|| failure(ErrorCode::AuthExpired))?;
++    if expires_at_ms <= now || claims["nbf"].as_u64().is_some_and(|value| value > now / 1000 + 60) { return Err(failure(ErrorCode::AuthExpired)); }
++    Ok(OAuthGrant { access_token, refresh_token: None, expires_at_ms, principal_id: principal.into() })
 +}
 diff --git a/src-tauri/src/services/backend.rs b/src-tauri/src/services/backend.rs
 new file mode 100644
@@ -23432,10 +23526,10 @@ index 0000000000000000000000000000000000000000..b96357cee6305c3d06206cf505715eb3
 +}
 diff --git a/src-tauri/src/services/mod.rs b/src-tauri/src/services/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f4f6e7200a45b031b2cad6ea82ddd8df02638c38
+index 0000000000000000000000000000000000000000..961261a9f5c67a326c2df74a0b9854267eaa0e62
 --- /dev/null
 +++ b/src-tauri/src/services/mod.rs
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +pub mod contracts;
 +pub mod dispatch;
 +pub mod backend;
@@ -23448,6 +23542,7 @@ index 0000000000000000000000000000000000000000..f4f6e7200a45b031b2cad6ea82ddd8df
 +pub mod sessions;
 +pub mod auth;
 +pub mod oauth;
++mod azure_cli;
 +pub mod runtime;
 +pub mod policy;
 +pub mod local_ipc;
@@ -24315,10 +24410,10 @@ index 0000000000000000000000000000000000000000..221489d3200b033b7917d75e3793db0e
 +}
 diff --git a/src-tauri/src/services/oauth.rs b/src-tauri/src/services/oauth.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..41e4118a8f747a634c7c3ea47811c703a8d1cb65
+index 0000000000000000000000000000000000000000..0aed8c198338b2fb612ba99debd5179660f15ee1
 --- /dev/null
 +++ b/src-tauri/src/services/oauth.rs
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,146 @@
 +use std::{fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
 +use async_trait::async_trait;
 +use oauth2::{basic::{BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse, BasicTokenType}, AsyncHttpClient, AuthType, Client, ClientId, ClientSecret, DeviceAuthorizationUrl, EndpointNotSet, EndpointSet, ExtraTokenFields, HttpRequest, HttpResponse, RefreshToken, Scope, StandardDeviceAuthorizationResponse, StandardRevocableToken, StandardTokenResponse, TokenResponse, TokenUrl};
@@ -24398,6 +24493,7 @@ index 0000000000000000000000000000000000000000..41e4118a8f747a634c7c3ea47811c703
 +
 +#[async_trait]
 +pub trait OAuthProvider: Send + Sync {
++    async fn azure_cli(&self, _config: &AuthConfig) -> ServiceResult<OAuthGrant> { Err(failure(ErrorCode::CapabilityUnavailable)) }
 +    async fn device_begin(&self, config: &AuthConfig) -> ServiceResult<StandardDeviceAuthorizationResponse>;
 +    async fn device_finish(&self, config: &AuthConfig, device: StandardDeviceAuthorizationResponse, signal: CancellationSignal) -> ServiceResult<OAuthGrant>;
 +    async fn client_credentials(&self, config: &AuthConfig, secret: &Secret) -> ServiceResult<OAuthGrant>;
@@ -24431,6 +24527,7 @@ index 0000000000000000000000000000000000000000..41e4118a8f747a634c7c3ea47811c703
 +
 +#[async_trait]
 +impl OAuthProvider for AzureOAuthProvider {
++    async fn azure_cli(&self, config: &AuthConfig) -> ServiceResult<OAuthGrant> { super::azure_cli::acquire(config).await }
 +    async fn device_begin(&self, config: &AuthConfig) -> ServiceResult<StandardDeviceAuthorizationResponse> {
 +        config.validate()?;
 +        let client = client(config)?.set_device_authorization_url(DeviceAuthorizationUrl::new(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/devicecode", config.tenant_id)).map_err(|_| failure(ErrorCode::InvalidArgument))?);
@@ -24603,7 +24700,7 @@ index 0000000000000000000000000000000000000000..4eef6265523d2dca88461774054fd21d
 +}
 diff --git a/src-tauri/src/services/platform/connections.rs b/src-tauri/src/services/platform/connections.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..1b576ddbc4715b87438d9a8c9922e4685dcc9827
+index 0000000000000000000000000000000000000000..8d3214f451ee9b7fb651563dcbc07baef7286af5
 --- /dev/null
 +++ b/src-tauri/src/services/platform/connections.rs
 @@ -0,0 +1,206 @@
@@ -24791,14 +24888,14 @@ index 0000000000000000000000000000000000000000..1b576ddbc4715b87438d9a8c9922e468
 +    let mut extra = serde_json::Map::new();
 +    for (key, value) in settings {
 +        if key == "extra" { let fields = value.as_object().ok_or_else(|| failure(ErrorCode::InvalidArgument))?; for (key, value) in fields { extra.insert(key.clone(), value.clone()); } }
-+        else if matches!(key.as_str(), "endpoint" | "auth_mode" | "tenant_id" | "client_id") { extra.insert(key.clone(), value.clone()); }
++        else if matches!(key.as_str(), "endpoint" | "auth_mode" | "auth_source" | "tenant_id" | "client_id") { extra.insert(key.clone(), value.clone()); }
 +        else {
 +            if !NONSECRET_PARAMS.contains(&key.as_str()) { return Err(failure(ErrorCode::InvalidArgument)); }
 +            normalized[key] = value.clone();
 +        }
 +    }
 +    for (key, value) in &extra {
-+        let fixed = matches!(key.as_str(), "endpoint" | "auth_mode" | "tenant_id" | "client_id" | "trust_server_certificate" | "integrated");
++        let fixed = matches!(key.as_str(), "endpoint" | "auth_mode" | "auth_source" | "tenant_id" | "client_id" | "trust_server_certificate" | "integrated");
 +        let definition = definitions.iter().find(|definition| definition.key == *key);
 +        if !fixed && definition.is_none() { return Err(failure(ErrorCode::InvalidArgument)); }
 +        if fixed && (if matches!(key.as_str(), "trust_server_certificate" | "integrated") { !value.is_boolean() && !matches!(value.as_str(), Some("true" | "false")) } else { !value.is_string() }) { return Err(failure(ErrorCode::InvalidArgument)); }
@@ -26530,10 +26627,10 @@ index 0000000000000000000000000000000000000000..e6adb733e335150a2b62505999a1e17a
 +}
 diff --git a/src-tauri/src/services/runtime.rs b/src-tauri/src/services/runtime.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..4ac2546946c72aba561a4395eb534bd5c0da0542
+index 0000000000000000000000000000000000000000..9a50c1104154462dfc7fdce849561f0dffad8f5b
 --- /dev/null
 +++ b/src-tauri/src/services/runtime.rs
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,415 @@
 +use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, time::Duration};
 +use async_trait::async_trait;
 +use serde_json::{json, Value};
@@ -26934,6 +27031,9 @@ index 0000000000000000000000000000000000000000..4ac2546946c72aba561a4395eb534bd5
 +    if matches!(extra["auth_mode"].as_str(), Some("entra_user" | "entra_service_principal")) {
 +        if uuid::Uuid::parse_str(extra["tenant_id"].as_str().unwrap_or("")).is_err() || uuid::Uuid::parse_str(extra["client_id"].as_str().unwrap_or("")).is_err() { return Err(failure(ErrorCode::InvalidArgument)); }
 +        if extra.get("username").is_some_and(|value| !value.is_null()) || extra["integrated"] == true { return Err(failure(ErrorCode::InvalidArgument)); }
++    }
++    if extra.get("auth_source").is_some() {
++        if !matches!(extra["auth_source"].as_str(), Some("oauth" | "azure_cli")) || (extra["auth_source"] == "azure_cli" && (!matches!(driver, "sqlserver" | "cosmos-nosql") || extra["auth_mode"] != "entra_user" || extra["client_id"] != super::azure_cli::CLIENT_ID)) { return Err(failure(ErrorCode::InvalidArgument)); }
 +    }
 +    if driver == "cosmos-nosql" {
 +        let endpoint = settings["endpoint"].as_str().or_else(|| extra["endpoint"].as_str()).unwrap_or("");
@@ -30194,6 +30294,191 @@ index 0000000000000000000000000000000000000000..78a902cdd613037113d91b1c3c93d8cd
 +    }
 +    Ok(())
 +}
+diff --git a/src-tauri/src/services/tests/azure_cli.rs b/src-tauri/src/services/tests/azure_cli.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c796bed3e62e7e3079f3248e267eaaf7d454229
+--- /dev/null
++++ b/src-tauri/src/services/tests/azure_cli.rs
+@@ -0,0 +1,179 @@
++use std::{sync::{Arc, Mutex}, time::Duration};
++use async_trait::async_trait;
++use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
++use serde_json::{json, Value};
++use super::{support::*, super::{auth::{AuthConfig, AuthManager, OAuthGrant}, azure_cli, backend::{CancellationSignal, TransientAuth}, contracts::ErrorCode, credentials::{Secret, SecretSlot, SecretStore, SessionSecretStore}, error::{failure, ServiceResult}, oauth::OAuthProvider, storage::now_ms}};
++
++fn config() -> AuthConfig {
++    let mut saved = entra_connection("entra_user");
++    saved.settings["extra"]["auth_source"] = json!("azure_cli");
++    saved.settings["extra"]["client_id"] = json!(azure_cli::CLIENT_ID);
++    AuthConfig::from_connection(&saved).unwrap().unwrap()
++}
++fn output(config: &AuthConfig, change: Option<(&str, Value)>) -> Secret {
++    let expiry = now_ms() / 1000 + 3600;
++    let mut claims = json!({"tid":config.tenant_id,"appid":azure_cli::CLIENT_ID,"aud":config.scope.strip_suffix("/.default").unwrap(),"oid":"11111111-1111-4111-8111-111111111111","exp":expiry,"nbf":0});
++    if let Some((key, value)) = change { claims[key] = value; }
++    let token = format!("synthetic.{}.synthetic", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap()));
++    Secret::new(serde_json::to_vec(&json!({"accessToken":token,"tokenType":"Bearer","tenant":config.tenant_id,"expires_on":expiry})).unwrap()).unwrap()
++}
++
++#[test]
++fn cli_토큰은_테넌트와_대상에_묶이고_갱신_토큰을_저장하지_않는다() {
++    // given
++    let config = config(); let output = output(&config, None);
++    // when
++    let grant = azure_cli::parse(&config, &output, now_ms()).unwrap();
++    // then
++    assert_eq!(grant.principal_id, "11111111-1111-4111-8111-111111111111");
++    assert!(grant.refresh_token.is_none());
++    assert!(!format!("{:?}", grant.access_token).contains("synthetic"));
++}
++
++#[test]
++fn 다른_테넌트_대상_클라이언트와_잘못된_사용자_토큰은_거부한다() {
++    // given
++    let config = config();
++    let outputs = [output(&config, Some(("tid",json!("44444444-4444-4444-8444-444444444444")))), output(&config, Some(("aud",json!("https://graph.microsoft.com")))), output(&config, Some(("appid",json!("22222222-2222-4222-8222-222222222222")))), output(&config, Some(("oid",json!("invalid"))))];
++    // when
++    let errors: Vec<_> = outputs.iter().map(|output| azure_cli::parse(&config, output, now_ms()).err().unwrap()).collect();
++    // then
++    assert!(errors.iter().all(|error| error.code == ErrorCode::AuthRequired));
++    assert!(errors.iter().all(|error| !error.message.contains("synthetic")));
++}
++
++#[test]
++fn 만료되거나_아직_유효하지_않은_cli_토큰은_거부한다() {
++    // given
++    let config = config(); let now = now_ms();
++    let outputs = [output(&config, Some(("exp",json!(now / 1000 - 1)))), output(&config, Some(("nbf",json!(now / 1000 + 300))))];
++    // when
++    let errors: Vec<_> = outputs.iter().map(|output| azure_cli::parse(&config, output, now).err().unwrap().code).collect();
++    // then
++    assert!(errors.iter().all(|code| *code == ErrorCode::AuthExpired));
++}
++
++#[test]
++fn cli_소스는_사용자_인증과_공식_cli_클라이언트만_허용한다() {
++    // given
++    let mut wrong_mode = config(); wrong_mode.mode = "entra_service_principal".into();
++    let mut wrong_client = config(); wrong_client.client_id = "22222222-2222-4222-8222-222222222222".into();
++    // when
++    let errors = [wrong_mode.validate(), wrong_client.validate()];
++    // then
++    assert!(errors.iter().all(|result| result.as_ref().unwrap_err().code == ErrorCode::InvalidArgument));
++}
++
++#[test]
++fn cli_연결은_지원_드라이버와_sql의_인증서_검증을_요구한다() {
++    // given
++    let config = config(); let mut saved = entra_connection("entra_user"); saved.settings["extra"]["auth_source"] = json!(config.source); saved.settings["extra"]["client_id"] = json!(config.client_id);
++    let mut insecure = saved.settings.clone(); insecure["ssl_mode"] = json!("require");
++    // when
++    let supported = super::super::runtime::validate_connection_configuration("sqlserver", &saved.settings);
++    let wrong_driver = super::super::runtime::validate_connection_configuration("postgresql", &saved.settings);
++    let wrong_tls = super::super::runtime::validate_connection_configuration("sqlserver", &insecure);
++    // then
++    assert!(supported.is_ok()); assert_eq!(wrong_driver.err().unwrap().code, ErrorCode::InvalidArgument); assert_eq!(wrong_tls.err().unwrap().code, ErrorCode::TlsValidationFailed);
++}
++
++#[test]
++fn cosmos의_공식_리소스_id는_cosmos_토큰에만_허용한다() {
++    // given
++    let mut cosmos = config(); cosmos.scope = "https://cosmos.azure.com/.default".into();
++    let sql = config(); let audience = "a232010e-820c-4083-83bb-3ace5fc29d0b";
++    let outputs = [(cosmos.clone(), output(&cosmos, Some(("aud", json!(audience))))), (sql.clone(), output(&sql, Some(("aud", json!(audience)))))];
++    // when
++    let results: Vec<_> = outputs.iter().map(|(config, output)| azure_cli::parse(config, output, now_ms())).collect();
++    // then
++    assert!(results[0].is_ok()); assert_eq!(results[1].as_ref().err().unwrap().code, ErrorCode::AuthRequired);
++}
++
++struct CliOAuth { principal: Mutex<String> }
++#[async_trait]
++impl OAuthProvider for CliOAuth {
++    async fn azure_cli(&self, config: &AuthConfig) -> ServiceResult<OAuthGrant> { azure_cli::parse(config, &output(config, Some(("oid", json!(*self.principal.lock().unwrap())))), now_ms()) }
++    async fn device_begin(&self, _: &AuthConfig) -> ServiceResult<oauth2::StandardDeviceAuthorizationResponse> { Err(failure(ErrorCode::InteractionRequired)) }
++    async fn device_finish(&self, _: &AuthConfig, _: oauth2::StandardDeviceAuthorizationResponse, _: CancellationSignal) -> ServiceResult<OAuthGrant> { Err(failure(ErrorCode::InteractionRequired)) }
++    async fn client_credentials(&self, _: &AuthConfig, _: &Secret) -> ServiceResult<OAuthGrant> { Err(failure(ErrorCode::AuthRequired)) }
++    async fn refresh(&self, _: &AuthConfig, _: &Secret, _: Option<&str>) -> ServiceResult<OAuthGrant> { Err(failure(ErrorCode::AuthRequired)) }
++}
++
++#[tokio::test]
++async fn cli_계정이_바뀌면_이전_연결_인증을_무효화한다() {
++    // given
++    let config = config(); let mut saved = entra_connection("entra_user"); saved.settings["extra"]["auth_source"] = json!(config.source); saved.settings["extra"]["client_id"] = json!(config.client_id);
++    let provider = Arc::new(CliOAuth { principal: Mutex::new("11111111-1111-4111-8111-111111111111".into()) });
++    let persistent = Arc::new(SessionSecretStore::default()); let session = Arc::new(SessionSecretStore::default()); let lifecycle = Arc::new(TestLifecycle(Default::default()));
++    let manager = AuthManager::new(provider.clone(), persistent.clone(), session.clone(), lifecycle.clone());
++    manager.context(&saved, 30_000).await.unwrap();
++    *provider.principal.lock().unwrap() = "22222222-2222-4222-8222-222222222222".into();
++    // when
++    let result = manager.context(&saved, 30_000).await;
++    // then
++    assert_eq!(result.err().unwrap().code, ErrorCode::AuthRequired);
++    assert_eq!(lifecycle.0.load(std::sync::atomic::Ordering::SeqCst), 1);
++    assert!(persistent.get(&saved.id, SecretSlot::EntraRefreshToken).await.unwrap().is_none());
++    assert!(session.get(&saved.id, SecretSlot::EntraRefreshToken).await.unwrap().is_none());
++}
++
++#[tokio::test]
++async fn cli_인증_시작은_기기_코드_없이_공통_인증_작업으로_완료한다() {
++    // given
++    let config = config(); let mut saved = entra_connection("entra_user"); saved.settings["extra"]["auth_source"] = json!(config.source); saved.settings["extra"]["client_id"] = json!(config.client_id);
++    let manager = AuthManager::new(Arc::new(CliOAuth { principal: Mutex::new("11111111-1111-4111-8111-111111111111".into()) }), Arc::new(SessionSecretStore::default()), Arc::new(SessionSecretStore::default()), Arc::new(TestLifecycle(Default::default())));
++    // when
++    let started = manager.begin(&saved, "entra_user", &caller(), super::super::credentials::SecretPersistence::Session).await.unwrap();
++    tokio::task::yield_now().await;
++    let status = manager.status(&saved.id, started["auth_job_id"].as_str().unwrap(), &caller()).unwrap();
++    // then
++    assert_eq!(status["state"], "authenticated"); assert!(status.get("challenge").is_none());
++    assert!(matches!(manager.context(&saved, 30_000).await.unwrap(), Some(TransientAuth::EntraToken { .. })));
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn 실패한_cli의_표준_오류에_있는_비밀은_응답에_노출하지_않는다() {
++    // given
++    let config = config(); let mut command = tokio::process::Command::new("/bin/sh"); command.args(["-c", "printf 'synthetic-secret' >&2; printf '{}'; exit 1"]);
++    // when
++    let error = azure_cli::execute(&config, command, Duration::from_secs(1)).await.err().unwrap();
++    // then
++    assert_eq!(error.code, ErrorCode::AuthRequired); assert!(!error.message.contains("synthetic-secret"));
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn 응답하지_않는_cli는_제한_시간에_종료한다() {
++    // given
++    let config = config(); let mut command = tokio::process::Command::new("/bin/sh"); command.args(["-c", "exec sleep 30"]);
++    // when
++    let error = azure_cli::execute(&config, command, Duration::from_millis(50)).await.err().unwrap();
++    // then
++    assert_eq!(error.code, ErrorCode::DeadlineExceeded);
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn 지나치게_큰_cli_응답은_메모리_상한에서_중단한다() {
++    // given
++    let config = config(); let mut command = tokio::process::Command::new("/bin/sh"); command.args(["-c", "exec head -c 70000 /dev/zero"]);
++    // when
++    let error = azure_cli::execute(&config, command, Duration::from_secs(1)).await.err().unwrap();
++    // then
++    assert_eq!(error.code, ErrorCode::ResourceLimit);
++}
++
++#[tokio::test]
++#[ignore]
++async fn 실제_cli에서_sql과_cosmos_토큰을_원문_출력_없이_획득한다() {
++    // given
++    let mut config = config(); config.tenant_id = std::env::var("TABULARIS_VERIFY_AZURE_CLI_TENANT_ID").unwrap();
++    // when
++    let sql = azure_cli::acquire(&config).await;
++    config.scope = "https://cosmos.azure.com/.default".into();
++    let cosmos = azure_cli::acquire(&config).await;
++    // then
++    assert!(sql.is_ok()); assert!(cosmos.is_ok());
++    assert!(sql.unwrap().refresh_token.is_none()); assert!(cosmos.unwrap().refresh_token.is_none());
++}
 diff --git a/src-tauri/src/services/tests/credentials.rs b/src-tauri/src/services/tests/credentials.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..c2476f85499ea6cb5792bcc06b83055745088a33
@@ -30628,10 +30913,10 @@ index 0000000000000000000000000000000000000000..a6459281a0b7a190d2989dd7ade64281
 +}
 diff --git a/src-tauri/src/services/tests/mod.rs b/src-tauri/src/services/tests/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..baa49db5a04f438de1ba8c7e97ce5736de414662
+index 0000000000000000000000000000000000000000..02148a35be589aa4ae79e6c947c5c0065020d7ee
 --- /dev/null
 +++ b/src-tauri/src/services/tests/mod.rs
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,109 @@
 +use serde::Deserialize;
 +use serde_json::{json, Value};
 +use super::contracts::*;
@@ -30641,6 +30926,7 @@ index 0000000000000000000000000000000000000000..baa49db5a04f438de1ba8c7e97ce5736
 +mod results;
 +mod lifecycle;
 +mod oauth;
++mod azure_cli;
 +mod regressions;
 +mod newguiinput;
 +mod platform;

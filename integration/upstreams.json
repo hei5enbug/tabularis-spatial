@@ -7,10 +7,10 @@
       "directory": "tabularis-host",
       "url": "https://github.com/TabularisDB/tabularis.git",
       "base_commit": "b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4",
-      "source_commit": "1ba68de491db06c2d82a18e12107c34fd82341ec",
-      "tree": "39be93a3cbc05e981f69cb642497c237913d126d",
+      "source_commit": "c5f39c9c247b758204ec70393be9d8963958b597",
+      "tree": "80b6c4758d4082f7b3dd0bd414ac2af81118942e",
       "patch": "patches/host.patch",
-      "patch_sha256": "3d23a3262c075cb2833da1ac106e021ca2aa6ac034f540d050afebe53bf455ca"
+      "patch_sha256": "490d666b687b42600e637c2d48c99a4afff3a3a33951ef609767ce4effc7f064"
     },
     {
       "id": "postgresql",
@@ -27,10 +27,10 @@
       "directory": "tabularis-sqlserver-plugin",
       "url": "https://github.com/TabularisDB/tabularis-sqlserver-plugin.git",
       "base_commit": "58c47b374ddc472457d8c946572f4bc8fd930978",
-      "source_commit": "906192d7561c41e0c5097ef797d2e7e5e8b7cc47",
-      "tree": "bdc5894cf279ce92782f8d0c8abe5bb9dfea32c3",
+      "source_commit": "28bf96ab7ca0ec56fe21e2cbde178857677f28d1",
+      "tree": "cdec5c7b16870651204e2537f7a684aa6b9d996b",
       "patch": "patches/sqlserver.patch",
-      "patch_sha256": "2f03523fd0112304500bc7b9db1397ffdbf0cd418f08ff6fe119bbc15c88b65b"
+      "patch_sha256": "f20ad143fe013148605873151a0360e4c89a68d6723eeb130b21d736eb09b59e"
     }
   ]
 }

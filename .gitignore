@@ -14,3 +14,9 @@ artifacts/
 credentials.json
 secrets.json
 kubeconfig
+
+.azure/
+azure-local/
+*.azure.local.json
+*.token
+*.kubeconfig

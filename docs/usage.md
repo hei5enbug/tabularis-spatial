@@ -103,5 +103,45 @@ GUI의 보호 입력, CLI의 `--credential-stdin`, Unix의 `--credential-fd`로 
 Windows에서는 파일 서술자 입력 대신 보호된 stdin을 사용합니다.
 
 Entra 사용자 로그인은 로그인·MFA 과정을 거치고, 무인 자동화는 앱 자격 증명을 사용합니다.
-실제 Azure 인증·토큰 갱신·TLS 검증은 보류 상태입니다.
+Azure CLI의 실제 SQL·Cosmos 토큰 획득은 확인했습니다. 전체 인증·갱신·TLS·CRUD 검증은 보류 상태입니다.
 취소 응답의 `outcome`이 불명확하면 쓰기를 자동 재실행하지 말고 대상 DB 상태를 확인합니다.
+
+
+## Azure CLI 로그인 사용하기
+
+개발 컴퓨터에서 Azure CLI 2.54 이상을 설치하고 필요한 테넌트로 로그인합니다.
+포털의 로그인과 CLI의 로그인은 별도 세션입니다. 테넌트 ID는 실제 값으로 바꾸세요.
+
+```sh
+az login --tenant TENANT_ID
+```
+
+SQL Server와 Cosmos 연결의 Microsoft Entra 사용자 인증에서 로그인 소스를
+`Azure CLI (az login)`로 선택합니다. 클라이언트 ID는 공식 Azure CLI의 공개 ID로 고정됩니다.
+GUI에서 저장한 연결은 MCP와 CLI에서도 같은 공통 인증 서비스를 사용합니다.
+프로그램으로 연결을 등록한다면 공개 설정의 `extra`에 아래 필드를 넣습니다.
+
+```json
+{
+  "auth_mode": "entra_user",
+  "auth_source": "azure_cli",
+  "tenant_id": "TENANT_ID",
+  "client_id": "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+}
+```
+
+앱은 `az account get-access-token`을 셸 없이 실행해 토큰을 메모리에서 기존 드라이버로 전달합니다.
+CLI의 오류 출력과 토큰은 공통 서비스 응답이나 앱 로그에 넣지 않습니다.
+SQL과 Cosmos의 토큰 대상은 각각 고정하며 테넌트·클라이언트·주체·만료 정보를 확인합니다.
+토큰의 실제 서명과 데이터 접근 권한은 대상 Azure 서비스가 검증합니다.
+현재 어댑터는 해당 메타데이터를 확인할 수 있는 JWT 토큰을 지원합니다.
+CLI가 불투명한 토큰을 반환하면 `AUTH_REQUIRED`를 반환합니다.
+
+앱은 CLI의 access token이나 refresh token을 별도 파일이나 키체인에 저장하지 않습니다.
+Azure CLI는 자신의 로그인 캐시를 관리합니다. `.azure/`, `azure-local/`, `.env`와 인증 파일은 Git에서 제외합니다.
+앱의 로그아웃은 해당 연결의 인증 상태를 정리하며 CLI의 로그인 세션은 종료하지 않습니다.
+CLI 계정을 바꾸면 다음 호출에서 주체 변경을 감지해 이전 연결의 인증을 무효화합니다.
+
+SQL에는 Entra 데이터베이스 사용자가 필요하며 Cosmos에는 데이터 접근 역할이 필요합니다.
+포털의 리소스 관리 권한만으로 문서 조회가 허용되지는 않습니다.
+CLI 로그인은 개발과 수동 검증에 사용하고 무인 작업은 `entra_service_principal`을 사용합니다.
