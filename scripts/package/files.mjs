@@ -84,6 +84,17 @@ export function readBounded(file, cap, code = 'PACKAGE_TOO_LARGE') {
       if (!count) break;
       length += count;
     }
+    const verification = Buffer.alloc(Math.min(64 * 1024, length + 1));
+    let verified = 0;
+    while (verified <= length) {
+      const count = fs.readSync(fd, verification, 0, Math.min(verification.length, length - verified + 1), verified);
+      if (!count) {
+        if (verified !== length) fail('SOURCE_CHANGED');
+        break;
+      }
+      if (verified + count > length || !verification.subarray(0, count).equals(bytes.subarray(verified, verified + count))) fail('SOURCE_CHANGED');
+      verified += count;
+    }
     const final = fs.fstatSync(fd);
     const after = fs.lstatSync(file);
     if (length !== initial.size || final.size !== initial.size || final.mtimeMs !== initial.mtimeMs || final.ctimeMs !== initial.ctimeMs || !after.isFile() || after.isSymbolicLink() || after.ino !== initial.ino || after.dev !== initial.dev || after.size !== initial.size || after.mtimeMs !== initial.mtimeMs || after.ctimeMs !== initial.ctimeMs) fail('SOURCE_CHANGED');

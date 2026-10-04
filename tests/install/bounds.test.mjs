@@ -130,6 +130,20 @@ test('license들의 합이 남은 예산을 넘으면 큰 원문을 읽지 않�
 function mutateDuringRead(t, file, mode) {
   const original = fs.readSync;
   let changed = false;
+  if (mode === 'unchanged_metadata') {
+    const initial = fs.statSync(file);
+    for (const method of ['fstatSync', 'lstatSync']) {
+      const stat = fs[method];
+      t.mock.method(fs, method, (...args) => {
+        const current = stat(...args);
+        if (current.isFile()) {
+          current.mtimeMs = initial.mtimeMs;
+          current.ctimeMs = initial.ctimeMs;
+        }
+        return current;
+      });
+    }
+  }
   t.mock.method(fs, 'readSync', (fd, ...args) => {
     const count = original(fd, ...args);
     if (!changed) {
@@ -142,7 +156,7 @@ function mutateDuringRead(t, file, mode) {
   try { readBounded(file, 16); return null; } catch (error) { return error.code; }
 }
 
-for (const mode of ['growth', 'drift']) {
+for (const mode of ['growth', 'drift', 'unchanged_metadata']) {
   test(`bounded read 중 ${mode}이 발생하면 원본 변경을 거부한다`, t => {
     // given
     const f = fixture(t);
