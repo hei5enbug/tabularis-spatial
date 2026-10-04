@@ -5,17 +5,6 @@
   "version": "0.1.0",
   "description": "PostGIS map extension for spatial query results and table layers in Tabularis.",
   "service_protocol": 1,
-  "capabilities": {
-    "schemas": false,
-    "views": false,
-    "routines": false,
-    "file_based": false,
-    "identifier_quote": "\"",
-    "alter_primary_key": false,
-    "manage_tables": false,
-    "explain": false,
-    "spatial_v1": true
-  },
   "min_runtime_version": "0.26.1-spatial.1",
   "ui_extensions": [
     {
@@ -26,6 +15,17 @@
     {
       "slot": "app.map.renderer",
       "module": "ui/dist/index.js"
+    }
+  ],
+  "required_service_protocol": 1,
+  "ui_assets": [
+    {
+      "path": "ui/dist/style.css",
+      "mime": "text/css"
+    },
+    {
+      "path": "ui/dist/maplibre-worker.js",
+      "mime": "text/javascript"
     }
   ]
 }

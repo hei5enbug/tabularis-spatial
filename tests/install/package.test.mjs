@@ -21,6 +21,9 @@ test('원본 공간 asset을 패키징하면 고정 항목과 전체 SHA가 보�
   assert.equal(actual.release.min_runtime_version, '0.26.1-spatial.1');
   assert.equal(actual.release.service_protocol, 1);
   assert.equal(actual.release.manifest_version, '0.1.0');
+  assert.equal(JSON.parse(decode(actual.files['.tabularium'])).required_service_protocol, 1);
+  assert.deepEqual(JSON.parse(decode(actual.files['.tabularium'])).ui_assets, [{ path: 'ui/dist/style.css', mime: 'text/css' }, { path: 'ui/dist/maplibre-worker.js', mime: 'text/javascript' }]);
+  assert.equal(Object.hasOwn(JSON.parse(decode(actual.files['.tabularium'])), 'capabilities'), false);
   assert.deepEqual(decode(actual.files['.tabularium']), fs.readFileSync(path.join(f.source, 'manifest.json')));
   assert.deepEqual(decode(actual.files.LICENSE), fs.readFileSync(path.join(f.source, 'LICENSE')));
   assert.ok(actual.release.files.every(entry => actual.files[entry.path].bytes === entry.bytes && actual.files[entry.path].sha256 === entry.sha256));
@@ -73,8 +76,15 @@ for (const [name, mutate] of [
   ['다른 module', value => { value.ui_extensions[0].module = 'other.js'; }],
   ['추가 extension field', value => { value.ui_extensions[1].extra = true; }],
   ['낮은 host floor', value => { value.min_runtime_version = '0.26.0'; }],
-  ['미준비 capability', value => { value.capabilities.spatial_v1 = false; }],
-  ['DDL capability', value => { value.capabilities.manage_tables = true; }],
+  ['driver capability', value => { value.capabilities = { spatial_v1: true }; }],
+  ['DDL capability', value => { value.capabilities = { manage_tables: true }; }],
+  ['누락 required protocol', value => { delete value.required_service_protocol; }],
+  ['다른 required protocol', value => { value.required_service_protocol = 2; }],
+  ['누락 asset 선언', value => { delete value.ui_assets; }],
+  ['중복 asset 선언', value => { value.ui_assets[1] = value.ui_assets[0]; }],
+  ['임의 asset 경로', value => { value.ui_assets[0].path = 'other.css'; }],
+  ['다른 asset MIME', value => { value.ui_assets[1].mime = 'application/json'; }],
+  ['추가 asset field', value => { value.ui_assets[0].extra = true; }],
   ['driver executable', value => { value.executable = 'driver'; }],
   ['engine field', value => { value.engine = 'spatial'; }],
   ['잘못된 protocol', value => { value.service_protocol = 2; }],

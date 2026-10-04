@@ -13,8 +13,8 @@ export function auditPython(platform = process.platform, env = { TABULARIS_S3_TE
   return executable;
 }
 export const MANIFEST = Object.freeze({
-  id: 'spatial', name: 'spatial', kind: 'extension', version: '0.1.0', description: '오프라인 공간 지도', service_protocol: 1,
-  capabilities: { schemas: false, views: false, routines: false, file_based: false, identifier_quote: '"', alter_primary_key: false, manage_tables: false, explain: false, spatial_v1: true },
+  id: 'spatial', name: 'spatial', kind: 'extension', version: '0.1.0', description: '오프라인 공간 지도', service_protocol: 1, required_service_protocol: 1,
+  ui_assets: [{ path: 'ui/dist/style.css', mime: 'text/css' }, { path: 'ui/dist/maplibre-worker.js', mime: 'text/javascript' }],
   min_runtime_version: '0.26.1-spatial.1', ui_extensions: [
     { slot: 'data-grid.toolbar.actions', module: 'ui/dist/index.js', driver: 'postgresql' },
     { slot: 'app.map.renderer', module: 'ui/dist/index.js' },
