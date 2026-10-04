@@ -22,12 +22,14 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
   const engine = useRef<MapEngine | null>(null);
   const actions = useRef(new Set<AbortController>());
   const alive = useRef(true);
+  const exportBusy = useRef(false);
   const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewportController = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
   const [ready, setReady] = useState(0);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [detail, setDetail] = useState<Json | null>(null);
@@ -175,10 +177,28 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
     if (next) { validateBasemap(next); if (!networkAccepted) throw new SpatialUiError("INVALID_ARGUMENT", "외부 tile/font/sprite 네트워크와 제공자 라이선스 표시를 확인하세요."); }
     await mutation("map.update", { basemap: next }, signal);
   }).catch(report);
-  const exportLayer = (layer: LayerState) => void managed(async signal => {
-    const response = await call(service, "spatial.export", { source: layer.source, format: "geojson", filename: "spatial-layer.geojson" }, { connection_id: layer.connection_id }, signal);
-    if (alive.current) { setDetail(response.data); setNotice(`GeoJSON export: truncated=${response.limits.truncated}, ${response.limits.reasons.join(", ")}`); }
-  }).catch(report);
+  const exportLayer = (layer: LayerState) => {
+    if (exportBusy.current || !alive.current) return;
+    exportBusy.current = true;
+    setExporting(true);
+    void managed(async signal => {
+      try {
+        const response = await call(service, "spatial.export", { source: layer.source, format: "geojson", filename: "spatial-layer.geojson" }, { connection_id: layer.connection_id }, signal);
+        if (signal.aborted || !alive.current) return;
+        setDetail(response.data);
+        const metadata = object(response.data);
+        const artifactId = metadata.artifact_id;
+        if (typeof artifactId !== "string" || artifactId.length === 0 || artifactId.length > 128 || /[\u0000-\u001f\u007f-\u009f]/.test(artifactId)) throw new SpatialUiError("INVALID_ARGUMENT", "내보낸 파일의 저장 정보를 확인할 수 없습니다.");
+        const saved = await service.saveArtifact(artifactId);
+        if (signal.aborted || !alive.current) return;
+        const truncated = response.limits.truncated || metadata.truncated === true;
+        setNotice(saved ? `GeoJSON 파일을 저장했습니다.${truncated ? ` 일부 데이터만 포함되어 있습니다.${response.limits.reasons.length ? ` (${response.limits.reasons.join(", ")})` : ""}` : ""}` : "파일 저장을 취소했습니다.");
+      } finally {
+        exportBusy.current = false;
+        if (alive.current) setExporting(false);
+      }
+    }).catch(report);
+  };
   const close = () => void managed(async signal => {
     if (guiInstanceId) await call(service, "map.close", { gui_instance_id: guiInstanceId }, { map_id: state.map.map_id }, signal);
     else modal.closeModal();
@@ -203,7 +223,7 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
     <div className="spatial-map-body">
       <div ref={container} className="spatial-map-canvas" aria-label="MapLibre 지도" />
       <aside aria-label="레이어와 속성" className="spatial-map-sidebar">
-        {state.map.layers.map(layer => <LayerPanel key={layer.layer_id} layer={layer} data={data} onMore={() => more(layer)} onExport={() => exportLayer(layer)} onSelect={featureId => select(layer.layer_id, featureId)} onUpdate={(visible, style) => void managed(signal => mutation("map.layer.update", { layer_id: layer.layer_id, ...(visible == null ? {} : { visible }), ...(style ? { style } : {}) }, signal)).catch(report)} onRemove={() => void managed(signal => mutation("map.layer.remove", { layer_id: layer.layer_id }, signal)).catch(report)} />)}
+        {state.map.layers.map(layer => <LayerPanel key={layer.layer_id} layer={layer} data={data} exporting={exporting} onMore={() => more(layer)} onExport={() => exportLayer(layer)} onSelect={featureId => select(layer.layer_id, featureId)} onUpdate={(visible, style) => void managed(signal => mutation("map.layer.update", { layer_id: layer.layer_id, ...(visible == null ? {} : { visible }), ...(style ? { style } : {}) }, signal)).catch(report)} onRemove={() => void managed(signal => mutation("map.layer.remove", { layer_id: layer.layer_id }, signal)).catch(report)} />)}
         <details><summary>Basemap</summary><p>기본 배경은 네트워크를 사용하지 않습니다. 외부 style은 tile, font, sprite 요청을 보낼 수 있습니다.</p>
           <label>HTTPS style URL<input value={basemapUrl} onChange={event => { setBasemapUrl(event.target.value); setNetworkAccepted(false); }} placeholder="비워 두면 단색 배경" /></label>
           <label>제공자 attribution<input value={attribution} onChange={event => setAttribution(event.target.value)} /></label>
@@ -217,7 +237,7 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
   </section>;
 }
 
-function LayerPanel({ layer, data, onMore, onExport, onSelect, onUpdate, onRemove }: { layer: LayerState; data: LayerDataStore; onMore(): void; onExport(): void; onSelect(id: string): void; onUpdate(visible?: boolean, style?: Style): void; onRemove(): void }) {
+function LayerPanel({ layer, data, exporting, onMore, onExport, onSelect, onUpdate, onRemove }: { layer: LayerState; data: LayerDataStore; exporting: boolean; onMore(): void; onExport(): void; onSelect(id: string): void; onUpdate(visible?: boolean, style?: Style): void; onRemove(): void }) {
   const values = data.get(layer.layer_id);
   const [color, setColor] = useState(layer.style.point?.color?.slice(0, 7) ?? "#3b82f6");
   const [opacity, setOpacity] = useState(layer.style.polygon?.opacity ?? 0.35);
@@ -236,7 +256,7 @@ function LayerPanel({ layer, data, onMore, onExport, onSelect, onUpdate, onRemov
     <button type="button" onClick={() => onUpdate(undefined, { point: { color, opacity, radius }, line: { color, opacity, width }, polygon: { color, opacity } })}>스타일 적용</button>
     <button type="button" onClick={onRemove}>레이어 삭제</button>
     <button type="button" disabled={!values?.page.page.has_more} onClick={onMore}>더 보기</button>
-    <button type="button" onClick={onExport}>GeoJSON export</button>
+    <button type="button" disabled={exporting} onClick={onExport}>GeoJSON export</button>
     {values?.page.limits.truncated ? <p role="status">truncated: {values.page.limits.reasons.join(", ")}</p> : null}
     {values?.page.warnings.map(warning => <p key={warning}>{warning}</p>)}
     {values?.page.feature_errors.map((failure, index) => <p key={index} role="status">행 {failure.index}: {failure.code} — {failure.message}</p>)}

@@ -32,7 +32,7 @@ export const harness = {
 };
 harness.service = {
   executeWrite: vi.fn(async () => { throw new Error("Query writes are unavailable in this map fixture."); }),
-  saveArtifact: vi.fn(async () => false),
+  saveArtifact: vi.fn(async () => true),
   importCredential: vi.fn(async () => { throw new Error("지도 fixture에서 credential.import는 지원하지 않습니다."); }),
   capabilities: vi.fn(async () => capabilities),
   subscribeMap: vi.fn(async handler => { harness.handler = handler; return harness.unsubscribe; }),
@@ -93,6 +93,7 @@ export function resetHarness(): void {
   harness.openGuiApplied = true;
   vi.mocked(harness.service.capabilities).mockReset().mockResolvedValue(capabilities);
   vi.mocked(harness.service.call).mockReset().mockImplementation(defaults.call);
+  vi.mocked(harness.service.saveArtifact).mockReset().mockResolvedValue(true);
   vi.mocked(harness.service.subscribeMap).mockReset().mockImplementation(defaults.subscribe);
   harness.assets.resolve.mockReset().mockImplementation(defaults.assets);
   harness.openModal.mockReset();

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ServiceRequest, ServiceResponse } from "@tabularis/plugin-api";
 import { HostFixture, openFixture, applyThroughHost } from "./host";
 import { FakeMap } from "./fake-map";
-import { applyRequest, harness, mapFixture, pageFixture, resetHarness } from "./fixtures";
+import { applyRequest, harness, mapFixture, pageFixture, resetHarness, response } from "./fixtures";
 import { validateRequest } from "./schema";
 import { WORLD } from "../src/models";
 
@@ -18,6 +19,38 @@ vi.mock("@tabularis/plugin-api", async () => {
 });
 beforeEach(() => { resetHarness(); FakeMap.reset(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); document.head.querySelectorAll("link[rel=stylesheet]").forEach(link => link.remove()); });
+
+const exportMetadata = { artifact_id: "fixture-artifact", bytes: 417, count: 1, checksum: "sha256:fixture", truncated: false };
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(complete => { resolve = complete; });
+  return { promise, resolve };
+}
+function mockExport(reply: (request: ServiceRequest) => ServiceResponse | Promise<ServiceResponse>): void {
+  const fallback = vi.mocked(harness.service.call).getMockImplementation()!;
+  vi.mocked(harness.service.call).mockImplementation(async request => {
+    if (request.operation !== "spatial.export") return fallback(request);
+    harness.requests.push(structuredClone(request));
+    return reply(request);
+  });
+}
+async function clickExport(): Promise<void> {
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "GeoJSON export" })); });
+}
+async function unmountBeforeReply(view: ReturnType<typeof render>, reply: () => void): Promise<void> {
+  await clickExport();
+  view.unmount();
+  await act(async () => { reply(); });
+}
+async function duplicateExportScenario(complete: () => void) {
+  const buttons = screen.getAllByRole<HTMLButtonElement>("button", { name: "GeoJSON export" });
+  await act(async () => { fireEvent.click(buttons[0]); fireEvent.click(buttons[1]); fireEvent.click(buttons[0]); });
+  const disabledWhileSaving = buttons.map(button => button.disabled);
+  const exportsWhileSaving = harness.requests.filter(request => request.operation === "spatial.export").length;
+  const savesWhileSaving = vi.mocked(harness.service.saveArtifact).mock.calls.length;
+  await act(async () => { complete(); });
+  return { disabledWhileSaving, exportsWhileSaving, savesWhileSaving, disabledAfterSaving: buttons.map(button => button.disabled) };
+}
 
 describe("host modal과 common operations mock 검증", () => {
   it("active_connection없이_global_subscribe가_지도를_연다", async () => {
@@ -129,16 +162,170 @@ describe("host modal과 common operations mock 검증", () => {
     expect(screen.getByLabelText("원본 속성").textContent).toContain("AQEA-original+/==");
   });
 
-  it("GeoJSON_export는_artifact_metadata만_표시한다", async () => {
+  it("GeoJSON 내보내기는 명시한 연결의 artifact를 저장하고 메타데이터를 유지한다", async () => {
     // given
     await openFixture();
     // when
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "GeoJSON export" })); });
+    await clickExport();
     // then
     expect(harness.requests.find(request => request.operation === "spatial.export")?.input).toMatchObject({ format: "geojson", filename: "spatial-layer.geojson", source: mapFixture.layers[0].source });
+    expect(harness.requests.find(request => request.operation === "spatial.export")).toMatchObject({ connection_id: "inactive-connection", deadline_ms: 30000 });
+    expect(harness.service.saveArtifact).toHaveBeenCalledExactlyOnceWith("fixture-artifact");
     expect(screen.getByLabelText("원본 속성").textContent).toContain("fixture-artifact");
     expect(screen.getByLabelText("원본 속성").textContent).toContain("sha256:fixture");
+    expect(screen.getByText("GeoJSON 파일을 저장했습니다.")).not.toBeNull();
     expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("일부 데이터만 내보낸 파일은 저장 완료와 제한 사유를 함께 알린다", async () => {
+    // given
+    await openFixture();
+    mockExport(request => ({ ...response(request, { ...exportMetadata, truncated: true }), limits: { truncated: true, reasons: ["bytes", "rows"] } }));
+    // when
+    await clickExport();
+    // then
+    expect(harness.service.saveArtifact).toHaveBeenCalledExactlyOnceWith("fixture-artifact");
+    expect(screen.getByText("GeoJSON 파일을 저장했습니다. 일부 데이터만 포함되어 있습니다. (bytes, rows)")).not.toBeNull();
+    expect(screen.getByLabelText("원본 속성").textContent).toContain('"truncated": true');
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("저장 대화상자 취소는 오류 없이 안내하고 내보내기를 반복하지 않는다", async () => {
+    // given
+    await openFixture();
+    vi.mocked(harness.service.saveArtifact).mockResolvedValue(false);
+    // when
+    await clickExport();
+    // then
+    expect(screen.getByText("파일 저장을 취소했습니다.")).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(harness.toast.showError).not.toHaveBeenCalled();
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect(harness.service.saveArtifact).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("button", { name: "GeoJSON export" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByLabelText("원본 속성").textContent).toContain("fixture-artifact");
+    expect(harness.requests.some(request => request.operation === "result.release" || request.operation === "result.get")).toBe(false);
+  });
+
+  it.each([
+    ["객체가 아닌 응답", null],
+    ["배열 응답", [exportMetadata]],
+    ["식별자 누락", {}],
+    ["숫자 식별자", { artifact_id: 17 }],
+    ["빈 식별자", { artifact_id: "" }],
+    ["상한을 넘은 식별자", { artifact_id: "a".repeat(129) }],
+    ["NUL을 포함한 식별자", { artifact_id: "artifact\u0000id" }],
+    ["제어 문자를 포함한 식별자", { artifact_id: "artifact\nid" }],
+    ["DEL을 포함한 식별자", { artifact_id: "artifact\u007fid" }],
+    ["C1 제어 문자를 포함한 식별자", { artifact_id: "artifact\u0085id" }],
+  ])("저장 정보가 잘못되면 대화상자를 열지 않는다: %s", async (_label, metadata) => {
+    // given
+    await openFixture();
+    mockExport(request => response(request, metadata));
+    // when
+    await clickExport();
+    // then
+    expect(harness.service.saveArtifact).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("INVALID_ARGUMENT");
+    expect(harness.toast.showError).toHaveBeenCalledTimes(1);
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect((screen.getByRole("button", { name: "GeoJSON export" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("artifact 식별자는 허용된 최대 길이까지 그대로 전달한다", async () => {
+    // given
+    await openFixture();
+    const artifactId = "a".repeat(128);
+    mockExport(request => response(request, { ...exportMetadata, artifact_id: artifactId }));
+    // when
+    await clickExport();
+    // then
+    expect(harness.service.saveArtifact).toHaveBeenCalledExactlyOnceWith(artifactId);
+    expect(screen.getByText("GeoJSON 파일을 저장했습니다.")).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("native 저장 오류는 기존 오류 경로에 전달하고 자동 재시도하지 않는다", async () => {
+    // given
+    await openFixture();
+    vi.mocked(harness.service.saveArtifact).mockRejectedValue(new Error("저장 fixture 오류"));
+    // when
+    await clickExport();
+    // then
+    expect(screen.getByRole("alert").textContent).toBe("저장 fixture 오류");
+    expect(harness.toast.showError).toHaveBeenCalledExactlyOnceWith("저장 fixture 오류");
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect(harness.service.saveArtifact).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("GeoJSON 파일을 저장했습니다.")).toBeNull();
+    expect((screen.getByRole("button", { name: "GeoJSON export" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByLabelText("원본 속성").textContent).toContain("fixture-artifact");
+  });
+
+  it("내보내기 서비스 오류는 저장 대화상자나 재내보내기를 실행하지 않는다", async () => {
+    // given
+    await openFixture();
+    harness.failNext = "CAPABILITY_UNAVAILABLE";
+    // when
+    await clickExport();
+    // then
+    expect(harness.service.saveArtifact).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("CAPABILITY_UNAVAILABLE");
+    expect(harness.toast.showError).toHaveBeenCalledTimes(1);
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect((screen.getByRole("button", { name: "GeoJSON export" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("모달을 닫은 뒤 내보내기 응답이 도착해도 저장 대화상자를 열지 않는다", async () => {
+    // given
+    const { view } = await openFixture();
+    const pending = deferred<ServiceResponse>();
+    let request!: ServiceRequest;
+    mockExport(value => { request = value; return pending.promise; });
+    // when
+    await unmountBeforeReply(view, () => pending.resolve(response(request, exportMetadata)));
+    // then
+    expect(harness.requests.filter(value => value.operation === "spatial.export")).toHaveLength(1);
+    expect(harness.service.saveArtifact).not.toHaveBeenCalled();
+    expect(harness.toast.showError).not.toHaveBeenCalled();
+    expect(view.container.childElementCount).toBe(0);
+    expect(screen.queryByText("GeoJSON 파일을 저장했습니다.")).toBeNull();
+  });
+
+  it.each([["저장 완료", true], ["저장 취소", false]] as const)("모달을 닫은 뒤 native 응답이 도착해도 알림을 표시하지 않는다: %s", async (_label, saved) => {
+    // given
+    const { view } = await openFixture();
+    const pending = deferred<boolean>();
+    vi.mocked(harness.service.saveArtifact).mockReturnValue(pending.promise);
+    // when
+    await unmountBeforeReply(view, () => pending.resolve(saved));
+    // then
+    expect(harness.service.saveArtifact).toHaveBeenCalledExactlyOnceWith("fixture-artifact");
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect(harness.toast.showError).not.toHaveBeenCalled();
+    expect(view.container.childElementCount).toBe(0);
+    expect(screen.queryByText("GeoJSON 파일을 저장했습니다.")).toBeNull();
+    expect(screen.queryByText("파일 저장을 취소했습니다.")).toBeNull();
+  });
+
+  it("한 모달의 중복 클릭은 내보내기와 저장을 한 번만 실행하고 모든 버튼을 잠근다", async () => {
+    // given
+    const map = structuredClone(mapFixture);
+    map.layers.push({ ...structuredClone(map.layers[0]), layer_id: "second-layer", connection_id: "other-explicit-connection" });
+    harness.map = map;
+    await openFixture(map);
+    const pending = deferred<boolean>();
+    vi.mocked(harness.service.saveArtifact).mockReturnValue(pending.promise);
+    // when
+    const actual = await duplicateExportScenario(() => pending.resolve(true));
+    // then
+    expect(actual.disabledWhileSaving).toEqual([true, true]);
+    expect(actual.disabledAfterSaving).toEqual([false, false]);
+    expect(actual.exportsWhileSaving).toBe(1);
+    expect(actual.savesWhileSaving).toBe(1);
+    expect(harness.requests.filter(request => request.operation === "spatial.export")).toHaveLength(1);
+    expect(harness.service.saveArtifact).toHaveBeenCalledExactlyOnceWith("fixture-artifact");
+    expect(screen.getByText("GeoJSON 파일을 저장했습니다.")).not.toBeNull();
   });
 
   it("외부_basemap은_네트워크와_attribution_확인_후_적용한다", async () => {
