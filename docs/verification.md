@@ -1,7 +1,8 @@
 # 검증 현황과 재현
 
 공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다.
-Windows 호스트는 컴파일됐지만 실행 시 DLL 진입점 오류가 발생해 native 설치 검증이 미완료다.
+Windows 호스트는 컴파일됐지만 라이브러리 검사 실행 파일에 DLL 진입점 오류가 발생했다.
+검사 파일의 Windows manifest를 보정했으며 native 설치 결과는 재확인 중이다.
 사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
@@ -77,6 +78,10 @@ Linux·Mac Intel 설치와 기존 드라이버 검사는 통과했다.
 Windows 2022는 OpenSSL 및 호스트 컴파일까지 성공했지만 검사 실행 파일 시작 시
 `0xc0000139 (STATUS_ENTRYPOINT_NOT_FOUND)`로 종료됐다.
 실패한 DLL·심볼은 이 로그만으로 특정할 수 없으며 Windows 설치 통과로 간주하지 않는다.
+의존성 코드를 확인한 결과 `rfd`는 Common Controls v6를 요구하지만 Tauri의 기본 리소스는
+일반 앱 실행 파일에만 연결됐다. 검사 실행 파일에 같은 manifest를 넣도록 CI를 보정했다.
+수정 `e34fdda`의 [Windows 단독 실행 37195121887](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37195121887)에서
+결과를 확인하며, Mac·Linux·드라이버 검사는 반복하지 않는다.
 
 정확한 배포 소스는 [upstream manifest](../integration/upstreams.json)의 원본 SHA·수정 소스 SHA·Git tree·패치 SHA-256으로 고정한다. CI 로그와 배포 ZIP의 파일별 checksum을 함께 보관한다.
 
@@ -117,5 +122,5 @@ WKWebView 성능 검사는 Spatial 저장소의
 | R05–R08 | 지도 UI·대용량·취소·transport 동등성·프로세스 간 지도 적용 검증 완료 |
 | R09–R10 | 읽기 전용·비밀 보호·연결/session 격리·지도 버전 검증 완료 |
 | R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료, 실제 Azure 검증은 사용자 지시로 보류 |
-| R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux 설치 통과, Windows DLL 진입점 문제 미해결 |
+| R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux 설치 통과, Windows 검사 manifest 보정 후 검증 중 |
 | R14 | 위 실행 근거에 따름. 보류·미완료 항목을 전체 통과로 합산하지 않음 |
