@@ -7,10 +7,10 @@
       "directory": "tabularis-host",
       "url": "https://github.com/TabularisDB/tabularis.git",
       "base_commit": "b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4",
-      "source_commit": "c5f39c9c247b758204ec70393be9d8963958b597",
-      "tree": "80b6c4758d4082f7b3dd0bd414ac2af81118942e",
+      "source_commit": "04f85fce003383a8f489ad7d7ac05626583e2361",
+      "tree": "552c9c104cd29f4bbaeda767a36c7cb0acfad06f",
       "patch": "patches/host.patch",
-      "patch_sha256": "490d666b687b42600e637c2d48c99a4afff3a3a33951ef609767ce4effc7f064"
+      "patch_sha256": "ddc30f619b53d0ee6564900d44d4b57e72fbd8d13cb6cacb4becb80983fe566a"
     },
     {
       "id": "postgresql",

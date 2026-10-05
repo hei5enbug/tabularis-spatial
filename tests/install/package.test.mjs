@@ -18,10 +18,10 @@ test('원본 공간 asset을 패키징하면 고정 항목과 전체 SHA가 보�
   assert.equal(actual.release.platform, 'any');
   assert.equal(actual.release.arch, 'any');
   assert.equal(actual.release.maplibre_version, '6.11.2');
-  assert.equal(actual.release.min_runtime_version, '0.26.1-spatial.1');
+  assert.equal(actual.release.min_runtime_version, '0.26.0');
   assert.equal(actual.release.service_protocol, 1);
   assert.equal(actual.release.manifest_version, '0.1.0');
-  assert.equal(JSON.parse(decode(actual.files['.tabularium'])).required_service_protocol, 1);
+  assert.equal(JSON.parse(decode(actual.files['.tabularium'])).kind, 'driver');
   assert.deepEqual(JSON.parse(decode(actual.files['.tabularium'])).ui_assets, [{ path: 'ui/dist/style.css', mime: 'text/css' }, { path: 'ui/dist/maplibre-worker.js', mime: 'text/javascript' }]);
   assert.equal(Object.hasOwn(JSON.parse(decode(actual.files['.tabularium'])), 'capabilities'), false);
   assert.deepEqual(decode(actual.files['.tabularium']), fs.readFileSync(path.join(f.source, 'manifest.json')));
@@ -72,13 +72,13 @@ for (const [name, mutate] of [
   ['임의 slot', value => { value.ui_extensions[1].slot = 'sidebar.footer'; }],
   ['잘못된 driver', value => { value.ui_extensions[0].driver = 'other'; }],
   ['전역 renderer driver', value => { value.ui_extensions[1].driver = 'postgresql'; }],
-  ['누락 driver', value => { delete value.ui_extensions[0].driver; }],
+  ['지원하지 않는 패키지 유형', value => { value.kind = 'extension'; }],
   ['다른 module', value => { value.ui_extensions[0].module = 'other.js'; }],
   ['추가 extension field', value => { value.ui_extensions[1].extra = true; }],
-  ['낮은 host floor', value => { value.min_runtime_version = '0.26.0'; }],
+  ['낮은 host floor', value => { value.min_runtime_version = '0.25.0'; }],
   ['driver capability', value => { value.capabilities = { spatial_v1: true }; }],
   ['DDL capability', value => { value.capabilities = { manage_tables: true }; }],
-  ['누락 required protocol', value => { delete value.required_service_protocol; }],
+  ['누락 protocol', value => { delete value.service_protocol; }],
   ['다른 required protocol', value => { value.required_service_protocol = 2; }],
   ['누락 asset 선언', value => { delete value.ui_assets; }],
   ['중복 asset 선언', value => { value.ui_assets[1] = value.ui_assets[0]; }],

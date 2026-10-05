@@ -12,7 +12,8 @@ React·MapLibre UI, 공간 데이터 모델, 수정 호스트와 기존 PostgreS
 | `scripts/bootstrap.mjs` | 별도 checkout 생성과 패치 검증 |
 | [tabularis-azure](https://github.com/hei5enbug/tabularis-azure) | Azure 연동: Cosmos NoSQL 드라이버, 문서 작업 공간과 Entra·Azure CLI 인증 UI |
 
-필요한 호스트 버전은 **`0.26.1-spatial.1`**입니다.
+공식 Tabularis **`0.26.0` 이상**에서 기본 PostGIS 테이블 지도 조회를 지원합니다.
+지도 상태 저장·결과 스냅샷·MCP 지도 제어는 공통 서비스를 제공하는 **`0.26.1-spatial.1`** 호스트가 필요합니다.
 일반 Tabularis 배포본에 지도 ZIP만 설치하는 구성은 지원하지 않습니다.
 이 저장소의 호스트 패치에는 공통 Rust 서비스, GUI·MCP·CLI 어댑터와 로컬 IPC가 포함됩니다.
 
@@ -39,6 +40,19 @@ bootstrap은 공개 upstream의 고정 commit을 받아 패치를 적용하고 G
 
 [빌드·설치](docs/building.md), [GUI·CLI·MCP 사용법](docs/usage.md),
 [검증 결과와 남은 검증](docs/verification.md)을 확인하세요.
+
+## 공식 앱의 기본 지도
+
+PostgreSQL 연결에서 테이블을 열고 `Map` 버튼을 누르세요.
+기본 지도는 테이블을 새로 제한 조회합니다. SQL 편집기의 기존 실행 결과를 재조회하거나 바꾸지 않습니다.
+공간 컬럼을 선택하고, SRID가 없는 행은 원본 좌표계 SRID를 입력한 뒤 조회합니다.
+행 1,000개·좌표 100,000개·GeoJSON 8 MiB 상한을 적용하고 제한에 도달하면 표시합니다.
+레이어 속성 확인과 표시 GeoJSON 내보내기를 지원합니다. 외부 배경지도는 기본으로 요청하지 않습니다.
+
+`spatial` 패키지는 DB 실행 파일이 없는 UI 플러그인입니다.
+기존 `postgres` 또는 `postgresql` 연결을 사용합니다.
+0.26.0 로더가 인식하는 `kind: driver`로 설치하며 실제 호스트 API에 따라 기능을 선택합니다.
+새 호스트 버전의 모든 동작을 자동으로 보장하는 것은 아닙니다.
 
 ## 데이터 처리 원칙
 

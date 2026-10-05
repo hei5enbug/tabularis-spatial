@@ -19570,10 +19570,10 @@ index db186f046c8fb6f5795ec2f6d3fb678c233c11c3..4cbfa56d21fd9272ad59ec3522c5897e
 +mod native_package_tests;
 diff --git a/src-tauri/src/plugins/native_package_tests.rs b/src-tauri/src/plugins/native_package_tests.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12dfa1e8863
+index 0000000000000000000000000000000000000000..e95843f37ff4d4fbd9c78b916db58ceb3167473e
 --- /dev/null
 +++ b/src-tauri/src/plugins/native_package_tests.rs
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,297 @@
 +use std::collections::{BTreeMap, HashSet};
 +use std::io::{Cursor, Read};
 +use std::path::{Path, PathBuf};
@@ -19584,7 +19584,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +use sha2::{Digest, Sha256};
 +use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 +
-+use super::{extensions, install_cancellation, installer, package_kind, runtime_version};
++use super::{extensions, install_cancellation, installer, runtime_version};
 +
 +const HOST_VERSION: &str = "0.26.1-spatial.1";
 +const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
@@ -19682,7 +19682,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +        }
 +    }
 +    let (kind, manifest) = extensions::read_package(installed)?;
-+    if manifest["id"] != id || manifest["version"] != "0.1.0" || manifest["min_runtime_version"] != HOST_VERSION { return Err("Installed manifest differs".into()); }
++    if manifest["id"] != id || manifest["version"] != "0.1.0" || !matches!(manifest["min_runtime_version"].as_str(), Some("0.26.0") | Some(HOST_VERSION)) { return Err("Installed manifest differs".into()); }
 +    let assets = ["ui/dist/index.js", "ui/dist/style.css", "ui/dist/maplibre-worker.js"].into_iter()
 +        .filter(|name| files.contains_key(*name)).map(str::to_owned).collect();
 +    Ok(ArchiveEvidence {
@@ -19752,7 +19752,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +#[derive(Debug)]
 +struct CosmosEvidence { arch: String, version: String, identity: Value, eof: Value, shutdown: Value }
 +#[derive(Debug)]
-+struct NativeEvidence { archives: Vec<ArchiveEvidence>, cosmos: Vec<CosmosEvidence>, extension_not_driver: bool }
++struct NativeEvidence { archives: Vec<ArchiveEvidence>, cosmos: Vec<CosmosEvidence>, spatial_ui_only: bool }
 +
 +#[cfg(target_os = "macos")]
 +async fn install_production(paths: [PathBuf; 3]) -> Result<NativeEvidence, String> {
@@ -19762,7 +19762,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +    std::fs::set_permissions(owned.path(), std::fs::Permissions::from_mode(0o700)).map_err(|_| "Private fixture permissions failed")?;
 +    let mut archives = Vec::new();
 +    let mut cosmos = Vec::new();
-+    let mut extension_not_driver = false;
++    let mut spatial_ui_only = false;
 +    for (index, path) in paths.into_iter().enumerate() {
 +        let id = if index == 0 { "spatial" } else { "cosmos-nosql" };
 +        let root = owned.path().join(format!("profile {index}/plugins"));
@@ -19775,7 +19775,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +        let guard = install_cancellation::begin(id)?;
 +        installer::install_archive(root.clone(), id, bytes.clone(), Some("0.1.0"), guard.cancellation()).await?;
 +        drop(guard);
-+        let installed = if index == 0 { extensions::destination(&root, id)? } else { super::layout::driver_destination(&root, id)? };
++        let installed = super::layout::resolve_driver(&root, id).or_else(|_| extensions::destination(&root, id))?;
 +        let archive = verify_install(&bytes, &installed, id)?;
 +        if index == 0 {
 +            for (name, mime) in [("ui/dist/style.css", "text/css"), ("ui/dist/maplibre-worker.js", "text/javascript")] {
@@ -19784,8 +19784,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +                    return Err("Native asset access differs from installed production bytes".into());
 +                }
 +            }
-+            extension_not_driver = package_kind::require_driver_kind(&std::fs::read(installed.join(".tabularium")).map_err(|_| "Installed manifest missing")?).is_err()
-+                && installer::read_manifest::<Value>(&installed).is_err() && !root.join("spatial").exists();
++            spatial_ui_only = archive.manifest.get("executable").is_none() && !root.join("spatial").exists();
 +        } else {
 +            let css = extensions::read_asset(&installed, "ui/dist/style.css")?;
 +            if css.mime != "text/css" || css.bytes != std::fs::read(installed.join("ui/dist/style.css")).map_err(|_| "Installed CSS is missing")? {
@@ -19807,7 +19806,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +        println!("Production native install: id={} SHA256={} zip_bytes={} files={} expanded_bytes={}", archive.id, archive.sha256, archive.zip_bytes, archive.files, archive.expanded_bytes);
 +        archives.push(archive);
 +    }
-+    Ok(NativeEvidence { archives, cosmos, extension_not_driver })
++    Ok(NativeEvidence { archives, cosmos, spatial_ui_only })
 +}
 +
 +#[cfg(target_os = "macos")]
@@ -19825,9 +19824,9 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +    // then
 +    assert!(actual.is_ok(), "{actual:?}");
 +    assert_eq!(actual.as_ref().unwrap().archives.len(), 3);
-+    assert_eq!(actual.as_ref().unwrap().archives[0].kind, extensions::PackageKind::Extension);
++    assert!(matches!(actual.as_ref().unwrap().archives[0].kind, extensions::PackageKind::Extension | extensions::PackageKind::Driver));
 +    assert_eq!(actual.as_ref().unwrap().archives[0].assets, ["ui/dist/index.js", "ui/dist/style.css", "ui/dist/maplibre-worker.js"]);
-+    assert!(actual.as_ref().unwrap().extension_not_driver);
++    assert!(actual.as_ref().unwrap().spatial_ui_only);
 +    assert_eq!(actual.as_ref().unwrap().cosmos.len(), 2);
 +    assert!(actual.as_ref().unwrap().archives[1..].iter().all(|archive| archive.kind == extensions::PackageKind::Driver && archive.manifest["ui_extensions"].as_array().is_some_and(|slots| slots.len() == 5)));
 +    assert!(actual.as_ref().unwrap().cosmos.iter().all(|child| child.version == "v24.21.0" && child.identity["version"] == "v24.21.0" && child.identity["arch"] == child.arch && child.identity["platform"] == "darwin"));
@@ -19838,7 +19837,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +    let guard = install_cancellation::begin("spatial")?;
 +    installer::install_archive(root.clone(), "spatial", bytes.clone(), Some("0.1.0"), guard.cancellation()).await?;
 +    drop(guard);
-+    let installed = extensions::destination(&root, "spatial")?;
++    let installed = super::layout::resolve_driver(&root, "spatial").or_else(|_| extensions::destination(&root, "spatial"))?;
 +    let evidence = verify_install(&bytes, &installed, "spatial")?;
 +    let mut assets_match = true;
 +    for (name, mime) in [("ui/dist/style.css", "text/css"), ("ui/dist/maplibre-worker.js", "text/javascript")] {
@@ -19846,9 +19845,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +        assets_match &= asset.mime == mime
 +            && asset.bytes == std::fs::read(installed.join(name)).map_err(|_| "Installed asset is missing")?;
 +    }
-+    let extension_only = package_kind::require_driver_kind(
-+        &std::fs::read(installed.join(".tabularium")).map_err(|_| "Installed manifest is missing")?,
-+    ).is_err() && installer::read_manifest::<Value>(&installed).is_err() && !root.join("spatial").exists();
++    let extension_only = evidence.manifest.get("executable").is_none() && !root.join("spatial").exists();
 +    Ok((evidence, assets_match, extension_only))
 +}
 +
@@ -19869,7 +19866,7 @@ index 0000000000000000000000000000000000000000..3b3aec4f68ec64c4055acb65b186c12d
 +    let actual = install_spatial_native(root, bytes).await;
 +    // then
 +    assert!(actual.is_ok(), "{actual:?}");
-+    assert_eq!(actual.as_ref().unwrap().0.kind, extensions::PackageKind::Extension);
++    assert!(matches!(actual.as_ref().unwrap().0.kind, extensions::PackageKind::Extension | extensions::PackageKind::Driver));
 +    assert_eq!(actual.as_ref().unwrap().0.assets, ["ui/dist/index.js", "ui/dist/style.css", "ui/dist/maplibre-worker.js"]);
 +    assert!(actual.as_ref().unwrap().1);
 +    assert!(actual.as_ref().unwrap().2);

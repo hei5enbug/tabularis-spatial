@@ -29,7 +29,22 @@ ZIP 옆에 SHA256 파일을 생성합니다. ZIP에는 `.tabularium`, JS, CSS, M
 의존성 라이선스와 `release.json` 파일별 검증 목록이 포함됩니다.
 ZIP은 운영체제 공통이며 실제 설치 동작은 각 운영체제의 호스트가 담당합니다.
 
-## 호스트 실행
+## 공식 Tabularis 0.26.0 이상에 설치
+
+앱을 종료하고 ZIP을 임시 디렉터리에 압축 해제합니다. `.tabularium`이 있는 ZIP 루트의 모든 파일을
+아래 플러그인 폴더에 복사합니다. 이전 설치본은 별도 폴더에 백업한 뒤 교체하세요.
+
+| OS | 설치 폴더 |
+| --- | --- |
+| macOS | `~/Library/Application Support/tabularis/plugins/drivers/spatial/` |
+| Linux | `~/.local/share/tabularis/plugins/drivers/spatial/` |
+| Windows | `%APPDATA%\tabularis\plugins\drivers\spatial\` |
+
+앱을 다시 열고 설정의 Plugins에서 `spatial`을 활성화합니다. 이 경로는 UI 전용 `driver` 패키지이며
+새 PostgreSQL 드라이버 실행 파일을 설치하지 않습니다. 기존 PostgreSQL 테이블 화면의 `Map` 버튼으로
+기본 지도를 엽니다. 지원 범위는 [사용 안내](usage.md)를 확인하세요.
+
+## 공통 서비스 호스트 실행
 
 호스트는 공간 core를 sibling 경로에서 참조합니다. 디렉터리 이름과 배치를 유지하세요.
 호스트 저장소의 운영체제별 Tauri 필수 도구를 먼저 설치합니다.
@@ -44,7 +59,7 @@ pnpm --dir ../tabularis-host tauri dev
 개발 검증에는 `TABULARIS_DATA_DIR`와 `TABULARIS_PLUGIN_DIR`에 서로 분리한 절대 경로를 지정할 수 있습니다.
 두 경로는 실제 사용자 프로필과 분리해야 합니다.
 
-수정 호스트의 플러그인 설정에서 지도 ZIP을 설치합니다.
+수정 호스트에서도 같은 수동 설치 경로를 사용할 수 있습니다. 공통 서비스가 제공되면 전체 지도 기능을 활성화합니다.
 기존 PostgreSQL 드라이버도 패치된 소스로 빌드해야 새 공간 RPC를 사용할 수 있습니다.
 
 ```sh

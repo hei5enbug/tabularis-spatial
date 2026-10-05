@@ -144,3 +144,25 @@ DB나 문서의 생성·수정·삭제는 실행하지 않았다. 전체 Azure �
 Windows 설치의 이전 보류 항목은
 [단독 실행 37195121887](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37195121887)의 성공으로 종료했다.
 이 결과는 Azure CLI 어댑터 추가 전 호스트에 대한 설치 검사이며 새 인증 코드는 해당 CI에서 실행하지 않았다.
+
+## 공식 0.26.0 호환 경로와 문서 대조
+
+2026-10-06 기본 호환 경로를 추가했다. 기존 전체 서비스 검증 기록은 수정 호스트에 대한 기록이다.
+이번 지도 UI build/typecheck와 111개 검사, 패키지 검사 29개, 수정 호스트의 실제 지도 ZIP 설치 검사 1개가 통과했다.
+공식 macOS ARM64 Tabularis 0.26.0 프로필에 UI 전용 패키지를 설치했다.
+공식 앱의 실제 DB 지도 조회와 Azure 데이터 연결은 이번 검사에 포함하지 않는다.
+
+설치 ZIP은 648,095 bytes·33 files이며 SHA256은
+`75b41bc70c56eafa87611a64126aec103dfa764636b853476eb40aacef71f108`다.
+패키지 내부 원장과 모든 파일의 해시를 대조했다.
+
+[Building Plugins](https://tabularis.dev/wiki/building-plugins),
+[Plugin Guide](https://github.com/TabularisDB/tabularis/blob/main/plugins/PLUGIN_GUIDE.md),
+[Plugin Tutorial](https://github.com/TabularisDB/tabularis/blob/main/plugins/PLUGIN_TUTORIAL.md),
+[SQL Server 플러그인](https://github.com/TabularisDB/tabularis-sqlserver-plugin)의 README와 관련 문서를 대조했다.
+UI 전용 manifest, 최소 버전, 공개 UI API와 슬롯, 연결 metadata, stdio와 취소 규약을 확인했다.
+문서 예시와 RPC 입력이 다른 부분은 고정한 0.26.0 소스의 실제 계약을 따른다.
+공식 앱에는 공유 서비스와 asset API가 없으므로 제한형 기본 지도를 선택하며, 전체 MCP·CLI 지도 기능은 수정 호스트에 남긴다.
+
+후속 상한 보정에서 호스트의 truncated 응답을 보존하고 GeoJSON 닫는 바이트도 계산했다. 관련 10개 검사와 build/typecheck가 통과했다.
+공식 앱의 Plugin Center에서 두 플러그인 활성화를 확인했다.
