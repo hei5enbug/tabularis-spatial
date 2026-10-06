@@ -40,6 +40,7 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
   const [basemapUrl, setBasemapUrl] = useState(state.map.basemap?.style_url ?? "");
   const [attribution, setAttribution] = useState(state.map.basemap?.attribution ?? "");
   const [networkAccepted, setNetworkAccepted] = useState(false);
+  const [approvedBasemapUrl, setApprovedBasemapUrl] = useState<string | null>(null);
   const [guiInstanceId, setGuiInstanceId] = useState<string | null>(null);
 
   const managed = async <T,>(action: (signal: AbortSignal) => Promise<T>): Promise<T> => {
@@ -131,13 +132,13 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
     const serial = state.serial;
     setLoading(true);
     setError("");
-    void engine.current.apply(state.map, controller.signal).then(() => {
-      if (!controller.signal.aborted && alive.current) { session.rendered(serial, true); setRevision(value => value + 1); setLoading(false); }
+    void engine.current.apply(state.map, controller.signal, approvedBasemapUrl).then(() => {
+      if (!controller.signal.aborted && alive.current) { session.rendered(serial, !state.map.basemap || state.map.basemap.style_url === approvedBasemapUrl); setRevision(value => value + 1); setLoading(false); }
     }).catch(failure => {
       if (!controller.signal.aborted && alive.current && session.getSnapshot().serial === serial) { report(failure); session.rendered(serial, false); setLoading(false); }
     });
     return () => controller.abort();
-  }, [state, ready, session]);
+  }, [state, ready, session, approvedBasemapUrl]);
 
   useEffect(() => {
     let active = true;
@@ -176,6 +177,7 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
     const next = basemapUrl.trim() ? { style_url: basemapUrl.trim(), attribution } : null;
     if (next) { validateBasemap(next); if (!networkAccepted) throw new SpatialUiError("INVALID_ARGUMENT", "외부 tile/font/sprite 네트워크와 제공자 라이선스 표시를 확인하세요."); }
     await mutation("map.update", { basemap: next }, signal);
+    if (alive.current && !signal.aborted) setApprovedBasemapUrl(next?.style_url ?? null);
   }).catch(report);
   const exportLayer = (layer: LayerState) => {
     if (exportBusy.current || !alive.current) return;
@@ -225,9 +227,10 @@ export function MapModal({ session, pluginId }: { session: MapSession; pluginId:
       <aside aria-label="레이어와 속성" className="spatial-map-sidebar">
         {state.map.layers.map(layer => <LayerPanel key={layer.layer_id} layer={layer} data={data} exporting={exporting} onMore={() => more(layer)} onExport={() => exportLayer(layer)} onSelect={featureId => select(layer.layer_id, featureId)} onUpdate={(visible, style) => void managed(signal => mutation("map.layer.update", { layer_id: layer.layer_id, ...(visible == null ? {} : { visible }), ...(style ? { style } : {}) }, signal)).catch(report)} onRemove={() => void managed(signal => mutation("map.layer.remove", { layer_id: layer.layer_id }, signal)).catch(report)} />)}
         <details><summary>Basemap</summary><p>기본 배경은 네트워크를 사용하지 않습니다. 외부 style은 tile, font, sprite 요청을 보낼 수 있습니다.</p>
+          {state.map.basemap && state.map.basemap.style_url !== approvedBasemapUrl ? <p role="status">외부 배경지도는 이 창에서 네트워크 사용을 확인하고 적용해야 표시됩니다.</p> : null}
           <label>HTTPS style URL<input value={basemapUrl} onChange={event => { setBasemapUrl(event.target.value); setNetworkAccepted(false); }} placeholder="비워 두면 단색 배경" /></label>
           <label>제공자 attribution<input value={attribution} onChange={event => setAttribution(event.target.value)} /></label>
-          <label><input type="checkbox" checked={networkAccepted} onChange={event => setNetworkAccepted(event.target.checked)} />외부 네트워크와 제공자 라이선스 표시 확인</label>
+          <label><input type="checkbox" checked={networkAccepted} onChange={event => { setNetworkAccepted(event.target.checked); if (!event.target.checked) setApprovedBasemapUrl(null); }} />외부 네트워크와 제공자 라이선스 표시 확인</label>
           <button type="button" onClick={basemap}>Basemap 적용</button>
         </details>
         {state.map.basemap ? <p className="spatial-attribution">{state.map.basemap.attribution}</p> : null}

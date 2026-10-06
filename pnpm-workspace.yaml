@@ -1,5 +1,8 @@
 packages:
   - ui
 
+overrides:
+  'vite>esbuild': 0.28.1
+
 ignoredBuiltDependencies:
   - esbuild

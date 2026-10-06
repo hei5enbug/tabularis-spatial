@@ -118,11 +118,11 @@ async function refreshChangedSources(fixture: ReturnType<typeof engine>) {
   await fixture.engine.refresh(mapFixture, new AbortController().signal);
   const appended = source.data;
   const style = { ...mapFixture, basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
-  await fixture.engine.apply(style, new AbortController().signal);
+  await fixture.engine.apply(style, new AbortController().signal, style.basemap.style_url);
   const styled = fixture.map.sources.get("spatial:fixture-layer")!.data;
-  await fixture.engine.apply({ ...style, layers: [] }, new AbortController().signal);
+  await fixture.engine.apply({ ...style, layers: [] }, new AbortController().signal, style.basemap.style_url);
   const removed = fixture.map.sources.size;
-  await fixture.engine.apply(style, new AbortController().signal);
+  await fixture.engine.apply(style, new AbortController().signal, style.basemap.style_url);
   return { source, appended, styled, removed, restored: fixture.map.sources.get("spatial:fixture-layer")!.data };
 }
 
@@ -158,5 +158,42 @@ describe("불변 GeoJSON source 재사용", () => {
     expect(actual.removed).toBe(0);
     expect(actual.restored).toMatchObject({ features: [{ properties: { feature_id: "original-snapshot:2:20" } }] });
     expect(harness.requests.some(request => request.operation === "query.execute")).toBe(false);
+  });
+});
+
+describe("외부 배경지도의 네트워크 동의", () => {
+  it.each([null, "https://other.example/style.json"])("현재 URL에 동의하지 않으면 외부 스타일을 요청하지 않는다: %s", async approved => {
+    // given
+    const fixture = engine();
+    const state = { ...mapFixture, basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
+    // when
+    await fixture.engine.apply(state, new AbortController().signal, approved);
+    // then
+    expect(fixture.map.setStyle).toHaveBeenCalledWith(expect.objectContaining({ sources: {} }));
+    expect(fixture.map.setStyle).not.toHaveBeenCalledWith(state.basemap.style_url);
+    expect(fixture.map.sources.size).toBe(1);
+  });
+
+  it("현재 URL에 동의하면 외부 스타일을 적용한다", async () => {
+    // given
+    const fixture = engine();
+    const state = { ...mapFixture, basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
+    // when
+    await fixture.engine.apply(state, new AbortController().signal, state.basemap.style_url);
+    // then
+    expect(fixture.map.setStyle).toHaveBeenCalledExactlyOnceWith(state.basemap.style_url);
+  });
+
+  it("동의를 철회하면 단색 배경으로 돌아간다", async () => {
+    // given
+    const fixture = engine();
+    const state = { ...mapFixture, basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
+    await fixture.engine.apply(state, new AbortController().signal, state.basemap.style_url);
+    fixture.map.setStyle.mockClear();
+    // when
+    await fixture.engine.apply(state, new AbortController().signal);
+    // then
+    expect(fixture.map.setStyle).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sources: {} }));
+    expect(fixture.map.sources.size).toBe(1);
   });
 });

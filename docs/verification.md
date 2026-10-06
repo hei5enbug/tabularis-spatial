@@ -2,7 +2,7 @@
 
 공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다.
 Windows 라이브러리 검사 실행 파일의 manifest를 보정한 뒤 실제 설치 검사도 통과했다.
-실제 Azure 인증·네트워크 문제가 해결되지 않았으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
+실제 Azure의 최소 읽기는 확인했지만 SQL 플러그인의 읽기 전용 권한 확인과 전체 수용 검사는 미완료다.
 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
 ## 확인한 동작
@@ -69,7 +69,8 @@ cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
 
 ## 아직 구분해야 하는 완료 조건
 
-- 실제 Azure 연결 확인을 우선한다. MFA/앱 인증·갱신·TLS·CRUD와 Cosmos 교차 파티션 정렬·집계·페이지 재개 검증은 인증·네트워크 허용 후 진행한다.
+- 최소 읽기 확인과 전체 수용 검사를 구분한다. SQL의 읽기 전용 주체 확인, MFA/앱 인증·갱신·CRUD와
+  Cosmos 교차 파티션 정렬·집계·페이지 재개는 미완료다.
 - GitHub Actions는 수동 실행하는 선택 사항이다. 실제 OS에서 직접 실행한 검증도 환경과 결과를 기록해 근거로 사용한다. workflow 작성이나 synthetic 검사를 native 실행으로 간주하지 않는다.
 
 최종 코드 `6d05c3c`의 [CI 실행 37193323425](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37193323425)에서
@@ -120,7 +121,7 @@ WKWebView 성능 검사는 Spatial 저장소의
 | R01–R04 | 기존 PostgreSQL 드라이버 재사용과 실제 PG17/18 공간·SRID·쿼리/테이블 조회 검증 완료 |
 | R05–R08 | 지도 UI·대용량·취소·transport 동등성·프로세스 간 지도 적용 검증 완료 |
 | R09–R10 | 읽기 전용·비밀 보호·연결/session 격리·지도 버전 검증 완료 |
-| R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료, 실제 Azure 검증은 사용자 지시로 보류 |
+| R11–R12 | Azure SQL·Cosmos 코드와 synthetic 검사 완료. 실제 최소 읽기 확인, SQL 읽기 전용 권한 확인·쓰기·갱신·전체 parity는 미완료 |
 | R13 | 패키지·호스트 패치·독립 빌드 완료. Mac·Linux·Windows 실제 설치 통과 |
 | R14 | 위 실행 근거에 따름. 보류·미완료 항목을 전체 통과로 합산하지 않음 |
 
@@ -222,3 +223,60 @@ live 레지스트리 스키마 조회는 HTTP 403으로 실패했으므로 UI �
 이번 수정은 README·검증 기록과 Actions 실행 조건에 한정했다.
 워크플로는 `workflow_dispatch`만 사용하고 `contents: read`를 유지한다.
 YAML을 파싱해 수동 실행 조건을 확인했다. 제품 코드와 기존 검사 입력이 바뀌지 않아 전체 테스트는 반복하지 않았다.
+
+## Azure SQL의 읽기 전용 후속 검증
+
+2026-10-06 commit `4ba5b7b`에서 후속 검증을 시작했다.
+기존 CLI 로그인으로 SQL scope 토큰과 관리 메타데이터를 메모리에서 처리했다.
+SQL 테스트 DB 두 곳에 pyodbc 5.3.0·Microsoft ODBC Driver 18로 접속했다.
+`Encrypt=yes`, `TrustServerCertificate=no`, `ApplicationIntent=ReadOnly`를 사용했다.
+두 DB 모두 `SELECT 1`이 1을 반환했다. 사용자 테이블 내용과 원본 오류는 출력하지 않았다.
+현재 요청에서 이전 인증·방화벽 실패는 재현되지 않았다. ODBC 성공을 SQL 플러그인의 성공으로 대신하지 않는다.
+
+고정 SQL Server upstream에 기존 patch를 적용하고 tree `cdec5c7b16870651204e2537f7a684aa6b9d996b`를 확인했다.
+Rust 1.96.0의 `cargo build --locked --bin sqlserver-plugin`으로 빌드했다.
+`verify-full`, `entra_user`, matching transient 토큰과 `read_only: true`로 `service_test`를 실행했다.
+`startup_script`와 쓰기 RPC는 사용하지 않았다. 응답을 받을 때까지 stdin을 열어 두었다.
+최초 probe는 stdin을 일찍 닫아 `CANCELLED`가 됐으며, 이 결과를 Azure 오류로 분류하지 않는다.
+
+| 경로 | 관찰 결과 | 확인한 원인과 한계 |
+|---|---|---|
+| ODBC의 테스트 DB 두 곳 | `SELECT 1` 성공 | 현재 로그인·네트워크·TLS를 확인. DB 주체가 읽기 전용이라는 증거는 아님 |
+| SQL 플러그인의 첫 테스트 DB | `CAPABILITY_UNAVAILABLE` | 권한 조사 결과가 `readonly::probe`의 10,000행 상한을 초과 |
+| SQL 플러그인의 다른 테스트 DB | `WRITE_NOT_ALLOWED` | DB 주체를 읽기 전용으로 입증할 수 없음 |
+| 동일 권한 probe의 ODBC 조회 | `INSERT`·`UPDATE`·`DELETE`와 DDL 권한 확인 | 두 DB 모두 현재 주체가 드라이버의 읽기 전용 요구를 충족하지 않음 |
+
+첫 DB의 내부 원인은 저장소 밖 진단 복사본에서 안전한 오류 코드만 관찰해 `RESOURCE_LIMIT`로 확인했다.
+같은 권한 조회의 행 수를 별도 COUNT 쿼리로 확인해 10,000행 초과를 검증했다.
+원본 오류·토큰·실제 리소스 이름은 출력하거나 Git에 남기지 않았다.
+권한·역할·방화벽·리소스를 변경하지 않았고 검사 상한과 읽기 전용 보호도 완화하지 않았다.
+읽기 전용 실행을 수용하려면 별도로 준비된 제한 주체와 확인 가능한 권한 구성이 필요하다.
+서비스 주체 인증·앱 내 사용자 인증·갱신·CRUD·전체 GUI/CLI/MCP 비교는 미완료다.
+
+실제 Cosmos 플러그인의 탐색·최소 읽기는
+[Azure 후속 기록](https://github.com/hei5enbug/tabularis-azure/blob/main/docs/verification.md#기존-cli-로그인의-읽기-전용-후속-검증)에 있다.
+
+## 외부 배경지도 동의와 후속 보안 검사
+
+저장된 지도와 CLI/MCP의 지도 상태에 있는 URL은 이전 렌더러에서 UI 확인 없이 로드될 수 있었다.
+`MapEngine.apply`는 현재 모달에서 승인한 URL만 MapLibre에 전달하도록 보완했다.
+모달은 동의 전에도 공간 레이어를 단색 배경으로 표시한다. 승인한 URL과 다른 URL·새 창에서는 재확인한다.
+동의 값은 지도 상태나 저장 파일에 넣지 않는다. 확인란을 해제하면 단색 배경으로 돌아간다.
+동의 전의 제한된 표시는 완전한 화면 적용 ACK로 표시하지 않는다.
+회귀 검사는 동의 전 차단·해당 URL 적용·다른 URL 차단·동의 철회를 확인한다.
+기존 source 교체 검사도 승인된 외부 스타일로 실행해 같은 동작을 확인했다.
+
+root/UI 워크스페이스의 최초 `pnpm audit --json`은 공개 취약점 항목 8개를 보고했다.
+Vite 7.3.6·Vitest 4.1.11로 갱신하고 Vite의 esbuild를 지원 범위 안의 0.28.1로 고정했다.
+최종 audit는 exit 0, 모든 심각도에서 0건이다. UI 119개와 typecheck를 포함한 UI 빌드가 통과했다.
+고정 upstream patch와 MapLibre 6.11.2는 변경하지 않았다.
+
+Gitleaks 8.30.1의 현재 추적 파일 검사에서 탐지한 3건은 기존 합성 fixture와 같은 경로·행이었다.
+해당 파일은 이번 작업에서 바뀌지 않았다. 실제 비밀 값 탐지는 없었다.
+기존 전체 Git 이력·공개 Actions 로그·산출물 검사 근거는 보존했다.
+
+공식 Tabularis main은 위의 `c0fe758325e955d5f364bf3150ea0822c6591469`와 같았다.
+최신 Plugin Guide·Building Plugins·연결 metadata 계약을 다시 확인했다.
+UI 전역·외부화·공식 기본 슬롯과 수정 호스트 전용 확장을 구분하는 계약은 유지한다.
+live 레지스트리 스키마 GET은 다시 HTTP 403으로 실패했다. 레지스트리 수용 여부는 미확인이다.
+새 ZIP의 실제 설치·OS별 실행과 이전 PostGIS 통합 검사는 이번에 반복하지 않았다.

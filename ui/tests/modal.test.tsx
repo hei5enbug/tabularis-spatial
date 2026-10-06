@@ -340,6 +340,36 @@ describe("host modal과 common operations mock 검증", () => {
     expect(harness.requests.find(request => request.operation === "map.update")?.input).toEqual({ basemap: { style_url: "https://tiles.example/style.json", attribution: "<b>제공자</b>" } });
     expect(document.querySelector(".spatial-attribution b")).toBeNull();
     expect(screen.getByText("<b>제공자</b>")).not.toBeNull();
+    await waitFor(() => expect(FakeMap.instances[0].setStyle).toHaveBeenCalledWith("https://tiles.example/style.json"));
+  });
+
+  it("저장된 외부 배경지도는 창에서 동의하기 전까지 요청하지 않는다", async () => {
+    // given
+    const input = { ...structuredClone(mapFixture), basemap: { style_url: "https://tiles.example/style.json", attribution: "fixture" } };
+    // when
+    const actual = await openFixture(input);
+    // then
+    expect(actual.ack).toMatchObject({ gui_applied: false, rendered_version: null });
+    expect(FakeMap.instances[0].setStyle).not.toHaveBeenCalledWith(input.basemap.style_url);
+    expect(screen.getByText("외부 배경지도는 이 창에서 네트워크 사용을 확인하고 적용해야 표시됩니다.")).not.toBeNull();
+  });
+
+  it("외부 요청이 배경지도 URL을 바꾸면 기존 동의를 재사용하지 않는다", async () => {
+    // given
+    await openFixture();
+    fireEvent.change(screen.getByLabelText("HTTPS style URL"), { target: { value: "https://tiles.example/style.json" } });
+    fireEvent.change(screen.getByLabelText("제공자 attribution"), { target: { value: "fixture" } });
+    fireEvent.click(screen.getByLabelText("외부 네트워크와 제공자 라이선스 표시 확인"));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Basemap 적용" })); });
+    await waitFor(() => expect(FakeMap.instances[0].setStyle).toHaveBeenCalledWith("https://tiles.example/style.json"));
+    const changed = { ...structuredClone(harness.map), version: harness.map.version + 1, basemap: { style_url: "https://other.example/style.json", attribution: "other" } };
+    FakeMap.instances[0].setStyle.mockClear();
+    // when
+    const actual = await applyThroughHost(applyRequest("update", changed, 20));
+    // then
+    expect(actual).toMatchObject({ gui_applied: false, rendered_version: null });
+    expect(FakeMap.instances[0].setStyle).toHaveBeenCalledWith(expect.objectContaining({ sources: {} }));
+    expect(FakeMap.instances[0].setStyle).not.toHaveBeenCalledWith(changed.basemap.style_url);
   });
 
   it("version_conflict는_reload후_사용자_재시도를_요청한다", async () => {

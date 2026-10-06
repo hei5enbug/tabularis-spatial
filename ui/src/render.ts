@@ -50,7 +50,7 @@ export class MapEngine {
 
   cancel(): void { this.renderController?.abort(); this.data.cancel(); }
 
-  async apply(state: MapState, signal: AbortSignal): Promise<void> {
+  async apply(state: MapState, signal: AbortSignal, approvedBasemapUrl: string | null = null): Promise<void> {
     if (this.disposed) throw new DOMException("Unmounted", "AbortError");
     this.renderController?.abort();
     const controller = new AbortController();
@@ -60,12 +60,13 @@ export class MapEngine {
     if (signal.aborted) abort();
     this.data.mark(state.layers);
     try {
-      const styleKey = state.basemap?.style_url ?? "blank";
+      const basemap = state.basemap?.style_url === approvedBasemapUrl ? state.basemap : null;
+      const styleKey = basemap?.style_url ?? "blank";
       if (this.styleKey !== styleKey) {
         this.styleKey = styleKey;
         this.sourceIds.clear();
         this.appliedSources.clear();
-        this.map.setStyle(state.basemap?.style_url ?? this.blankStyle());
+        this.map.setStyle(basemap?.style_url ?? this.blankStyle());
       }
       await this.waitFor("style", controller.signal);
       await Promise.all(state.layers.filter(layer => layer.visible).map(layer => this.data.load(layer, controller.signal)));
