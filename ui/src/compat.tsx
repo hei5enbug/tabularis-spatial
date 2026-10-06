@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { Map as LibreMap, getWorkerUrl, setWorkerUrl, type GeoJSONSource, type MapMouseEvent } from "maplibre-gl";
 import { usePluginConnection, usePluginModal, usePluginQuery, type SlotComponentProps } from "@tabularis/plugin-api";
 import workerSource from "virtual:tabularis-map-worker";
@@ -37,20 +37,15 @@ function tableSchema(contextSchema: string | null | undefined, activeSchema: str
   return contextSchema || activeSchema || "public";
 }
 
-export function hasCompatTableContext(props: SlotComponentProps): boolean {
-  const { context } = props;
-  return ["postgres", "postgresql"].includes((context.driver ?? "").toLowerCase())
-    && Boolean(context.connectionId && context.tableName);
-}
-
 export function CompatToolbar(props: SlotComponentProps) {
   const active = usePluginConnection();
   const modal = usePluginModal();
   const [error, setError] = useState("");
-  const schema = tableSchema(props.context.schema, active.schema);
-  if (!hasCompatTableContext(props)) return null;
-  const connectionId = props.context.connectionId!;
+  const driver = props.context.driver ?? active.driver;
+  const connectionId = props.context.connectionId ?? active.connectionId;
+  if (typeof driver !== "string" || !["postgres", "postgresql"].includes(driver.toLowerCase()) || !connectionId) return null;
   const activeForSlot = active.connectionId === connectionId;
+  const contextTable = typeof props.context.tableName === "string" ? props.context.tableName : "";
   const open = () => {
     setError("");
     if (active.connectionId !== connectionId) {
@@ -60,7 +55,9 @@ export function CompatToolbar(props: SlotComponentProps) {
     modal.openModal({
       title: "PostGIS 기본 지도",
       size: "xl",
-      content: <><style>{`${mapLibreCss}\n${spatialCss}`}</style><CompatMapModal schema={schema} table={props.context.tableName!} connectionId={connectionId} /></>,
+      content: <><style>{`${mapLibreCss}\n${spatialCss}`}</style>{contextTable
+        ? <CompatMapModal schema={tableSchema(props.context.schema, active.schema)} table={contextTable} connectionId={connectionId} />
+        : <CompatTablePicker initialSchema={tableSchema(undefined, active.schema)} connectionId={connectionId} />}</>,
     });
   };
   return <div className="spatial-toolbar">
@@ -68,6 +65,41 @@ export function CompatToolbar(props: SlotComponentProps) {
     {!activeForSlot ? <span role="status">테이블 연결을 활성화하면 지도를 열 수 있습니다.</span> : null}
     {error ? <span role="alert">{error}</span> : null}
   </div>;
+}
+
+function CompatTablePicker({ initialSchema, connectionId }: { initialSchema: string; connectionId: string }) {
+  const active = usePluginConnection();
+  const [schema, setSchema] = useState(initialSchema);
+  const [table, setTable] = useState("");
+  const [target, setTarget] = useState<{ schema: string; table: string } | null>(null);
+  const [error, setError] = useState("");
+  const connectionChanged = active.connectionId !== connectionId;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (active.connectionId !== connectionId) {
+      setError("활성 연결이 바뀌어 지도 조회를 시작할 수 없습니다. 테이블을 열 연결을 다시 선택해 주세요.");
+      return;
+    }
+    const selectedSchema = schema.trim();
+    const selectedTable = table.trim();
+    if (!selectedSchema || !selectedTable) {
+      setError("스키마와 테이블을 입력하세요.");
+      return;
+    }
+    setError("");
+    setTarget({ schema: selectedSchema, table: selectedTable });
+  };
+  if (target) return <CompatMapModal schema={target.schema} table={target.table} connectionId={connectionId} />;
+  return <section className="spatial-map-modal" aria-label="지도 테이블 선택">
+    <h2>PostGIS 기본 지도</h2>
+    <p>지도에 표시할 스키마와 테이블을 입력하세요.</p>
+    <form aria-label="지도 테이블" onSubmit={submit}>
+      <label>스키마<input aria-label="스키마" value={schema} onChange={event => setSchema(event.target.value)} required /></label>
+      <label>테이블<input aria-label="테이블" value={table} onChange={event => setTable(event.target.value)} required /></label>
+      <button type="submit" disabled={connectionChanged || !schema.trim() || !table.trim()}>지도 열기</button>
+    </form>
+    {connectionChanged ? <p role="alert">활성 연결이 바뀌어 지도 조회를 시작할 수 없습니다. 테이블을 열 연결을 다시 선택해 주세요.</p> : error ? <p role="alert">{error}</p> : null}
+  </section>;
 }
 
 export function CompatMapModal({ schema, table, connectionId }: { schema: string; table: string; connectionId: string }) {

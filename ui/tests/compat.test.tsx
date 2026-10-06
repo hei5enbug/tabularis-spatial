@@ -60,10 +60,10 @@ afterEach(() => {
 const slotContext = { connectionId: "roads-connection", driver: "postgres", tableName: "roads", schema: "public" };
 const slotProps: SlotComponentProps = { context: slotContext, pluginId: "spatial" };
 
-function ModalHost({ context = slotContext }: { context?: typeof slotContext }) {
+function ModalHost({ context = slotContext }: { context?: SlotComponentProps["context"] }) {
   const [content, setContent] = useState<ReactNode>(null);
   compatHarness.modal.openModal.mockImplementation(options => setContent(options.content));
-  return <><SpatialPlugin context={context} pluginId="spatial" />{content ? <div role="dialog" aria-label="기본 지도 모달">{content}</div> : null}</>;
+  return <><SpatialPlugin context={context} pluginId="spatial" />{content ? <div key={compatHarness.connection.connectionId} role="dialog" aria-label="기본 지도 모달">{content}</div> : null}</>;
 }
 
 describe("기본 PostgreSQL 지도 호환 UI", () => {
@@ -79,7 +79,7 @@ describe("기본 PostgreSQL 지도 호환 UI", () => {
     view.unmount();
   });
 
-  it("PostgreSQL이 아니거나 테이블 정보가 없으면 버튼을 표시하지 않습니다.", () => {
+  it("PostgreSQL이 아니면 버튼을 숨기고 테이블 정보가 없어도 표시합니다.", () => {
     // given
     const view = render(<SpatialPlugin context={{ ...slotContext, driver: "sqlite" }} pluginId="spatial" />);
     // when
@@ -87,7 +87,39 @@ describe("기본 PostgreSQL 지도 호환 UI", () => {
     // then
     expect(button).toBeNull();
     view.rerender(<SpatialPlugin context={{ ...slotContext, tableName: null }} pluginId="spatial" />);
-    expect(screen.queryByRole("button", { name: "Map" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Map" })).not.toBeNull();
+  });
+
+  it("빈 슬롯에서 테이블을 입력하면 기존 지도 모달이 해당 테이블을 조회합니다.", async () => {
+    // given
+    render(<ModalHost context={{}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    fireEvent.change(screen.getByLabelText("스키마"), { target: { value: " public " } });
+    fireEvent.change(screen.getByLabelText("테이블"), { target: { value: " roads " } });
+    // when
+    fireEvent.submit(screen.getByRole("form", { name: "지도 테이블" }));
+    // then
+    await waitFor(() => expect(compatHarness.executeQuery).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(/현재 테이블을 새로 조회합니다/)).not.toBeNull();
+    const queries = compatHarness.executeQuery.mock.calls.map(([sql]) => sql);
+    expect(queries[0]).toContain("f_table_schema = 'public'");
+    expect(queries[0]).toContain("f_table_name = 'roads'");
+    expect(queries[1]).toContain('FROM "public"."roads" AS "t"');
+  });
+
+  it("테이블 입력 중 활성 연결이 바뀌면 제출을 거부합니다.", () => {
+    // given
+    const view = render(<ModalHost context={{}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    fireEvent.change(screen.getByLabelText("테이블"), { target: { value: "roads" } });
+    compatHarness.connection = { connectionId: "another-connection", driver: "postgres", schema: "public" };
+    view.rerender(<ModalHost context={{}} />);
+    // when
+    fireEvent.submit(screen.getByRole("form", { name: "지도 테이블" }));
+    // then
+    expect((screen.getByRole("button", { name: "지도 열기" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain("활성 연결이 바뀌어 지도 조회를 시작할 수 없습니다");
+    expect(compatHarness.executeQuery).not.toHaveBeenCalled();
   });
 
   it("활성 연결이 테이블 연결과 다르면 모달이나 쿼리를 열지 않습니다.", () => {
