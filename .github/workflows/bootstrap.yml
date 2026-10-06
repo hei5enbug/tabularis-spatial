@@ -1,8 +1,6 @@
 name: Spatial and native host checks
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
     inputs:
       windows_only:

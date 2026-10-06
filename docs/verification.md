@@ -2,7 +2,7 @@
 
 공통 서비스와 실제 PostGIS·지도 UI·GUI/MCP/CLI 통합 검증을 마쳤다.
 Windows 라이브러리 검사 실행 파일의 manifest를 보정한 뒤 실제 설치 검사도 통과했다.
-사용자가 실제 Azure 검증을 보류했으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
+실제 Azure 인증·네트워크 문제가 해결되지 않았으므로 Azure SQL과 Cosmos를 연동 완료로 표시하지 않는다.
 아래의 native는 해당 OS에서 실제 실행했다는 뜻이며, synthetic은 대체 서버·드라이버 또는 플랫폼 입력을 사용했다는 뜻이다.
 
 ## 확인한 동작
@@ -69,8 +69,8 @@ cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
 
 ## 아직 구분해야 하는 완료 조건
 
-- 실제 Azure SQL의 MFA/앱 인증·갱신·TLS·CRUD와 실제 Cosmos의 교차 파티션 정렬·집계·페이지 재개는 사용자 결정에 따라 보류한다.
-- Linux·Windows의 native 설치 결과는 GitHub Actions의 실제 실행 결과를 기록한다. workflow 파일 작성이나 synthetic 플랫폼 검사를 native 실행으로 간주하지 않는다.
+- 실제 Azure 연결 확인을 우선한다. MFA/앱 인증·갱신·TLS·CRUD와 Cosmos 교차 파티션 정렬·집계·페이지 재개 검증은 인증·네트워크 허용 후 진행한다.
+- GitHub Actions는 수동 실행하는 선택 사항이다. 실제 OS에서 직접 실행한 검증도 환경과 결과를 기록해 근거로 사용한다. workflow 작성이나 synthetic 검사를 native 실행으로 간주하지 않는다.
 
 최종 코드 `6d05c3c`의 [CI 실행 37193323425](https://github.com/hei5enbug/tabularis-spatial/actions/runs/37193323425)에서
 Linux·Mac Intel 설치와 기존 드라이버 검사는 통과했다.
@@ -192,3 +192,33 @@ UI 전용 manifest, 최소 버전, 공개 UI API와 슬롯, 연결 metadata, std
 커밋 대상의 추적 파일과 신규 파일을 Gitleaks 8.30.1로 검사했다.
 탐지 3건은 합성 페이지 토큰과 PostgreSQL patch의 합성 비밀번호 fixture이며 실제 비밀 값이 아님을 확인했다.
 Git 이력의 탐지 4건도 같은 합성 fixture였다. 패키지·검사 보고서·실제 인증정보는 Git에 추가하지 않는다.
+
+## 공개 전 보안 검사와 최신 공식 가이드 대조
+
+2026-10-06 공개 대상 Git 파일과 전체 Git 이력을 다시 검사했다.
+원격에는 main 한 개만 있으며 태그·issue·PR·release는 없었다.
+추적된 환경 파일·개인 키·자격 증명 파일은 없고, Gitleaks의 이력 탐지 4건은 위의 합성 fixture였다.
+GitHub Actions 산출물 16개와 다운로드 가능한 실행 로그의 텍스트 및 ZIP 안의 텍스트도 검사했다.
+공개 콘텐츠에서 실제 비밀 값을 발견하지 않았다. 원본 검사 보고서는 저장소 밖에 보관한다.
+
+최신 공식 문서는 Tabularis main
+[`c0fe758325e955d5f364bf3150ea0822c6591469`](https://github.com/TabularisDB/tabularis/tree/c0fe758325e955d5f364bf3150ea0822c6591469) 기준이다.
+[Building Plugins](https://tabularis.dev/wiki/building-plugins),
+[Plugin Guide](https://github.com/TabularisDB/tabularis/blob/c0fe758325e955d5f364bf3150ea0822c6591469/plugins/PLUGIN_GUIDE.md),
+연결 metadata 문서·튜토리얼과 공식 SQL Server 플러그인 README를 대조했다.
+
+| 확인 항목 | 결과 |
+|---|---|
+| 패키지·최소 버전 | 패키저가 `.tabularium`을 생성하고 `plugins/drivers/spatial/`에 설치한다. 기본 최소 버전은 0.26.0이며 실제 공식 앱 설치를 확인했다. |
+| UI 번들 | IIFE 전역 `__tabularis_plugin__`과 default export를 사용한다. React·JSX·plugin API는 외부화하고 공식 전역을 사용한다. 같은 module을 여러 슬롯에서 사용하는 것은 가이드가 허용한다. |
+| UI 보안 | Tauri를 직접 import하거나 호출하지 않는다. 호스트 동작은 plugin API를 사용하고 지도 DOM은 해당 컴포넌트 안에서 관리한다. |
+| 기본 기능과 확장 기능 | 공식 슬롯 `data-grid.toolbar.actions`에서 기본 지도를 연다. `app.map.renderer`와 `service_protocol`은 수정 호스트 전용이며 서비스·asset API가 있을 때만 전체 기능을 사용한다. |
+
+Spatial은 기존 PostgreSQL 드라이버를 사용하는 UI 전용 패키지이며 DB 실행 파일을 추가하지 않는다.
+로케일 파일과 `defineSlot`은 선택 사항이다. 현재의 legacy slot props 형식은 가이드에서 계속 지원한다.
+live 레지스트리 스키마 조회는 HTTP 403으로 실패했으므로 UI 전용 매니페스트와 확장 필드의
+레지스트리 수용 여부는 확인하지 못했다. 공식 앱의 직접 설치 결과와 레지스트리 승인을 구분한다.
+
+이번 수정은 README·검증 기록과 Actions 실행 조건에 한정했다.
+워크플로는 `workflow_dispatch`만 사용하고 `contents: read`를 유지한다.
+YAML을 파싱해 수동 실행 조건을 확인했다. 제품 코드와 기존 검사 입력이 바뀌지 않아 전체 테스트는 반복하지 않았다.
