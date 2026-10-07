@@ -89,7 +89,7 @@ tabularis --mcp
 | 작업 취소 | `job.cancel`, 응답에서 받은 작업 식별자 |
 | 지도 변경 | `map.*`, `map_id`와 변경 전 `expected_version` |
 
-전체 입력 계약은 준비한 호스트의 `packages/service-contracts/schema/v1/request.json`에 있습니다.
+전체 입력 계약은 `build-support/sdk/packages/service-contracts/schema/v1/request.json`에 있습니다.
 대량 결과는 페이지·요약·파일 참조로 받습니다. 응답의 `limits.truncated`와 `limits.reasons`를 확인하세요.
 GeoJSON artifact는 다음 명령으로 아직 존재하지 않는 절대 경로에 저장합니다.
 

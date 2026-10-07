@@ -7095,7 +7095,7 @@ index 0a17eaa373170b34ba602f7bf47f3c7fc372fa82..387af7acced63d05495ffce4cbac2545
 -    "vite": "^7.3.1",
 -    "vitest": "^3.2.7"
 -  }
-+    "@tabularis/plugin-api": "link:../../tabularis-host/packages/plugin-api",
++    "@tabularis/plugin-api": "link:../../tabularis-spatial/build-support/sdk/packages/plugin-api",
 +    "@types/react": "19.2.14",
 +    "@types/react-dom": "19.2.3",
 +    "@vitejs/plugin-react": "5.2.0",
@@ -7127,8 +7127,8 @@ index 0000000000000000000000000000000000000000..92f0ff3fb7b55db3521d2798c1c3cbd2
 +  .:
 +    devDependencies:
 +      '@tabularis/plugin-api':
-+        specifier: link:../../tabularis-host/packages/plugin-api
-+        version: link:../../tabularis-host/packages/plugin-api
++        specifier: link:../../tabularis-spatial/build-support/sdk/packages/plugin-api
++        version: link:../../tabularis-spatial/build-support/sdk/packages/plugin-api
 +      '@testing-library/jest-dom':
 +        specifier: 6.9.1
 +        version: 6.9.1

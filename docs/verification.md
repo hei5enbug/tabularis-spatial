@@ -49,19 +49,20 @@ emulation 결과로 native 성능을 추정하지 않는다. 로컬 fixture는 �
 먼저 [빌드 절차](building.md)를 수행한다. 일반 검사는 Azure 자격 증명을 요구하지 않는다.
 
 ```sh
+pnpm test:sdk
 node --test tests/bootstrap.test.mjs
 cargo test --locked --workspace
 pnpm test:ui
 node --test tests/install/*.test.mjs
-cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml --lib services::
+cargo test --locked --manifest-path ../tabularis-app-source/src-tauri/Cargo.toml --lib services::
 ```
 
 호스트의 실제 PostGIS 검사는 `TABULARIS_TEST_POSTGIS_PLUGIN`에 빌드한 기존 PostgreSQL 플러그인의 절대 경로를, `TABULARIS_TEST_POSTGIS17_PORT`와 `TABULARIS_TEST_POSTGIS18_PORT`에 전용 로컬 fixture 포트를 지정한다. DB는 `spatial_fixture`, 사용자는 `postgres`, 접속 주소는 `127.0.0.1`이다. 두 fixture 모두 PostGIS 확장이 필요하다. 실제 검사는 임시 스키마를 생성하므로 전용 테스트 DB에서 실행한다.
 
 ```sh
-cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
+cargo test --locked --manifest-path ../tabularis-app-source/src-tauri/Cargo.toml \
   --lib service_spatial::tests::live -- --ignored --test-threads=1
-cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml \
+cargo test --locked --manifest-path ../tabularis-app-source/src-tauri/Cargo.toml \
   --lib service_spatial::tests::export_live -- --ignored --test-threads=1
 ```
 
@@ -300,3 +301,19 @@ ZIP과 설치 폴더의 모든 파일을 `release.json` 원장으로 검증했�
 화면 자동 조작은 macOS 접근성 권한 거부 `-25211`로 실행하지 못했다.
 이번 설치에서 실제 지도 조작·DB 조회와 다른 OS 실행을 추가로 수행하지 않았다.
 이미 실행 중인 이전 MCP 프로세스에는 클라이언트의 재연결이 필요하다.
+# 저장소 내부 SDK 전환 최종 검증 — 2026-10-07
+
+macOS ARM64에서 Node `24.21.0`과 pnpm `10.30.3`으로 검사했습니다.
+형제 호스트, 기존 `node_modules`, SDK `dist`가 없는 한글·공백 경로의 새 checkout에서
+bootstrap, UI 빌드·타입 검사와 SDK·source bootstrap 검사 9개가 통과했습니다.
+UI 검사 119개와 새 checkout의 ZIP 패키징 검사 128개가 통과했습니다.
+기존 SDK와 새 SDK의 JS·타입 선언 산출물은 바이트 단위로 동일했습니다.
+
+SQL Server 패치의 SDK 참조 3곳을 저장소 내부 경로로 바꾸고,
+고정 base의 새 checkout에서 패치 적용과 최종 Git tree를 검증했습니다.
+기존 SQL Server checkout은 UI 의존성 경로 두 파일과 bootstrap 메타데이터만 수정했습니다.
+다른 staged 항목 43개는 보존했으며 새 SDK 경로로 frozen install이 통과했습니다.
+기존 `tabularis-host` 폴더 제거 후 내부 SDK 검증과 설치된 앱의 드라이버 목록 조회가 통과했습니다.
+
+이 검사는 DB 접속이나 쿼리를 실행하지 않았습니다.
+이번 SDK 경로 전환에서 전체 수정 호스트 빌드, 다른 OS 실행과 레지스트리 수용 검증은 수행하지 않았습니다.

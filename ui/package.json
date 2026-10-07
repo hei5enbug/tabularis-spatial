@@ -9,7 +9,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@tabularis/plugin-api": "link:../../tabularis-host/packages/plugin-api",
+    "@tabularis/plugin-api": "workspace:*",
+    "@tabularis/service-contracts": "workspace:*",
+    "ajv": "8.20.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.2.0",

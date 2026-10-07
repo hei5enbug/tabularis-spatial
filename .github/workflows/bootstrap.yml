@@ -55,20 +55,21 @@ jobs:
           & $perl -MLocale::Maketext::Simple -e 'exit 0'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "OPENSSL_SRC_PERL=$perl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Prepare exact patched host
+      - name: Build the local SDK and Spatial plugin
+        run: pnpm bootstrap
+      - name: Prepare exact patched app source
         run: |
           node --test tests/bootstrap.test.mjs
           node scripts/bootstrap.mjs --only host
-      - name: Build shared packages and host frontend
+      - name: Build the patched app frontend
         run: |
-          pnpm --dir ../tabularis-host install --frozen-lockfile --ignore-scripts
-          pnpm --dir ../tabularis-host --filter @tabularis/service-contracts build
-          pnpm --dir ../tabularis-host --filter @tabularis/plugin-api build
-          pnpm --dir ../tabularis-host build
-      - name: Build and test Spatial
+          pnpm --dir ../tabularis-app-source install --frozen-lockfile --ignore-scripts
+          pnpm --dir ../tabularis-app-source --filter @tabularis/service-contracts build
+          pnpm --dir ../tabularis-app-source --filter @tabularis/plugin-api build
+          pnpm --dir ../tabularis-app-source build
+      - name: Test the SDK and Spatial plugin
         run: |
-          pnpm install --frozen-lockfile --ignore-scripts
-          pnpm build:ui
+          pnpm test:sdk
           pnpm test:ui
           cargo test --locked --workspace
       - name: Configure native installation fixture
@@ -77,7 +78,7 @@ jobs:
         run: node --test tests/install/*.test.mjs
       - name: Install production ZIP with the native host
         if: runner.os != 'Windows'
-        run: cargo test --locked --manifest-path ../tabularis-host/src-tauri/Cargo.toml --lib plugins::native_package_tests::현재_os의_실제_설치기는_지도_zip과_로컬_자산을_그대로_설치한다 -- --ignored --exact --test-threads=1
+        run: cargo test --locked --manifest-path ../tabularis-app-source/src-tauri/Cargo.toml --lib plugins::native_package_tests::현재_os의_실제_설치기는_지도_zip과_로컬_자산을_그대로_설치한다 -- --ignored --exact --test-threads=1
       - name: Install production ZIP with the Windows native host
         if: runner.os == 'Windows'
         shell: pwsh

@@ -4,7 +4,7 @@
   "repositories": [
     {
       "id": "host",
-      "directory": "tabularis-host",
+      "directory": "tabularis-app-source",
       "url": "https://github.com/TabularisDB/tabularis.git",
       "base_commit": "b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4",
       "source_commit": "04f85fce003383a8f489ad7d7ac05626583e2361",
@@ -28,9 +28,12 @@
       "url": "https://github.com/TabularisDB/tabularis-sqlserver-plugin.git",
       "base_commit": "58c47b374ddc472457d8c946572f4bc8fd930978",
       "source_commit": "28bf96ab7ca0ec56fe21e2cbde178857677f28d1",
-      "tree": "cdec5c7b16870651204e2537f7a684aa6b9d996b",
+      "tree": "6c1616f6c9888718347e67257183da6f5a62a3de",
       "patch": "patches/sqlserver.patch",
-      "patch_sha256": "f20ad143fe013148605873151a0360e4c89a68d6723eeb130b21d736eb09b59e"
+      "patch_sha256": "a7331850996c338fd7aa0e88f418ebcef10bae0676f8a9dd95590abf2f390ddd",
+      "patch_adaptations": [
+        "The SQL Server UI uses the Git-tracked Spatial SDK instead of a sibling host SDK."
+      ]
     }
   ]
 }

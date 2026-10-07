@@ -1,23 +1,41 @@
 # 빌드와 설치
 
-## 호스트와 기존 드라이버 준비
+## 독립 플러그인 빌드
 
+Spatial 플러그인은 저장소에 고정한 SDK snapshot을 사용합니다. 앱이나 드라이버 checkout은 필요하지 않습니다.
+Node `24.21.0`과 pnpm `10.30.3`으로 다음 명령을 실행합니다.
+
+```sh
+pnpm bootstrap
+```
+
+이 명령은 SDK snapshot을 검증하고 frozen lockfile로 의존성을 설치한 뒤 서비스 계약, plugin API,
+UI를 빌드합니다. SDK 파일을 검증하려면 `pnpm verify:sdk`, SDK 패키지만 다시 빌드하려면
+`pnpm build:sdk`를 실행합니다.
+
+## 앱과 기존 드라이버 source 준비
+
+수정된 앱이나 기존 드라이버 source가 필요한 통합 작업에만 실행합니다.
 `node scripts/bootstrap.mjs`는 아래 세 디렉터리를 Spatial 저장소 옆에 생성합니다.
 
 | 디렉터리 | upstream |
 |---|---|
-| `tabularis-host` | `TabularisDB/tabularis` |
+| `tabularis-app-source` | `TabularisDB/tabularis` |
 | `tabularis-postgresql-plugin` | `TabularisDB/tabularis-postgresql-plugin` |
 | `tabularis-sqlserver-plugin` | `TabularisDB/tabularis-sqlserver-plugin` |
 
-정확한 base commit, 수정 source commit, 패치 SHA256과 최종 Git tree는
+정확한 base commit, source commit, 패치 SHA256과 최종 Git tree는
 [`integration/upstreams.json`](../integration/upstreams.json)에 고정돼 있습니다.
+`base_commit`은 공식 upstream의 기준 revision이고, `source_commit`은 원래 수정 소스의 revision입니다.
+SQL Server의 `patch_adaptations`는 UI SDK 링크를
+이 저장소의 고정 SDK로 바꾼 내용을 기록하며, 이 조정은 패치 SHA256과 최종 Git tree에 반영됩니다.
 부모 경로에 기존 checkout이 있으면 새 부모 디렉터리를 사용하세요.
 bootstrap은 원래 저장소에 commit하거나 upstream에 push하지 않습니다.
+앱 source만 준비하려면 `node scripts/bootstrap.mjs --only host`를 실행합니다.
 
 ## 지도 ZIP
 
-README의 의존성 설치와 UI 빌드를 마친 뒤 실행합니다.
+`pnpm bootstrap`으로 의존성과 UI를 빌드한 뒤 실행합니다.
 출력 파일은 아직 존재하지 않아야 합니다. Node는 아래 경로를 현재 디렉터리 기준으로 계산합니다.
 
 ```sh
@@ -50,11 +68,11 @@ ZIP은 운영체제 공통이며 실제 설치 동작은 각 운영체제의 호
 호스트 저장소의 운영체제별 Tauri 필수 도구를 먼저 설치합니다.
 
 ```sh
-pnpm --dir ../tabularis-host build
-pnpm --dir ../tabularis-host tauri dev
+pnpm --dir ../tabularis-app-source build
+pnpm --dir ../tabularis-app-source tauri dev
 ```
 
-배포용 앱은 `pnpm --dir ../tabularis-host tauri build`로 만듭니다.
+배포용 앱은 `pnpm --dir ../tabularis-app-source tauri build`로 만듭니다.
 코드 서명·공증 자격 증명은 이 작업에서 사용하지 않았습니다.
 개발 검증에는 `TABULARIS_DATA_DIR`와 `TABULARIS_PLUGIN_DIR`에 서로 분리한 절대 경로를 지정할 수 있습니다.
 두 경로는 실제 사용자 프로필과 분리해야 합니다.
@@ -70,7 +88,8 @@ cargo build --locked --release --manifest-path ../tabularis-sqlserver-plugin/Car
 PostgreSQL 드라이버 패키지는 기존 upstream과 같이 `.tabularium`과 `postgresql-plugin` 실행 파일을
 ZIP 루트에 둡니다. Windows 실행 파일 이름에는 `.exe`가 붙습니다.
 SQL Server는 기존 패키징 절차에 따라 `.tabularium`, 실행 파일, UI·EXPLAIN 번들을 함께 넣습니다.
-SQL Server UI는 호스트 plugin-api 빌드 후 해당 저장소의 `ui/`에서 frozen install과 build를 실행합니다.
+SQL Server UI는 Spatial에서 `pnpm build:sdk`를 실행한 뒤 해당 저장소의 `ui/`에서
+frozen install과 build를 실행합니다.
 
 ## 되돌리기
 

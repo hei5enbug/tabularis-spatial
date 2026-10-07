@@ -9,7 +9,9 @@ React·MapLibre UI, 공간 데이터 모델, 수정 호스트와 기존 PostgreS
 | `ui/` | 지도 모달, 레이어, 객체 선택, 속성, GeoJSON 저장 |
 | `crates/tabularis-spatial-core/` | 공간 결과, 원본 식별자, 표시 범위와 제한 검증 |
 | `integration/` | 고정 upstream revision에 적용하는 호스트·기존 드라이버 패치와 SHA256 |
-| `scripts/bootstrap.mjs` | 별도 checkout 생성과 패치 검증 |
+| `build-support/sdk/` | 플러그인 빌드에 쓰는 고정 plugin API와 서비스 계약 |
+| `scripts/sdk-bootstrap.mjs` | 고정 SDK를 검증하고 의존성과 UI를 빌드 |
+| `scripts/bootstrap.mjs` | 선택 사항인 앱·드라이버 source checkout 생성 |
 | [tabularis-azure](https://github.com/hei5enbug/tabularis-azure) | Azure 연동: Cosmos NoSQL 드라이버, 문서 작업 공간과 Entra·Azure CLI 인증 UI |
 
 공식 Tabularis **`0.26.0` 이상**에서 기본 PostGIS 테이블 지도 조회를 지원합니다.
@@ -24,18 +26,14 @@ Node `24.21.0`, pnpm `10.30.3`, Rust `1.96.0`과 운영체제별 Tauri 빌드 �
 ```sh
 git clone https://github.com/hei5enbug/tabularis-spatial.git tabularis-spatial
 cd tabularis-spatial
-node scripts/bootstrap.mjs
-pnpm --dir ../tabularis-host install --frozen-lockfile --ignore-scripts
-pnpm --dir ../tabularis-host --filter @tabularis/service-contracts build
-pnpm --dir ../tabularis-host --filter @tabularis/plugin-api build
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm build:ui
+pnpm bootstrap
 cargo test --locked --workspace
 ```
 
-bootstrap은 공개 upstream의 고정 commit을 받아 패치를 적용하고 Git tree hash를 확인합니다.
-이미 있는 다른 checkout은 덮어쓰지 않습니다.
-호스트만 준비하려면 `node scripts/bootstrap.mjs --only host`를 실행합니다.
+`pnpm bootstrap`은 저장소에 포함된 SDK snapshot을 검증하고 frozen lockfile로 설치합니다.
+서비스 계약과 plugin API를 빌드한 뒤 UI도 빌드합니다. 앱이나 드라이버 source checkout은 필요하지 않습니다.
+전체 수정 source가 필요한 통합 작업은 `node scripts/bootstrap.mjs`로 앱과 기존 드라이버를 준비합니다.
+앱만 준비하려면 `node scripts/bootstrap.mjs --only host`를 실행합니다.
 
 [빌드·설치](docs/building.md), [GUI·CLI·MCP 사용법](docs/usage.md),
 [검증 결과와 남은 검증](docs/verification.md)을 확인하세요.

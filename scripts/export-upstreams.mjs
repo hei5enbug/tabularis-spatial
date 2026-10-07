@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositories = [
-  ['host', 'tabularis-host', 'tabularis', 'b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4'],
+  ['host', 'tabularis-app-source', 'tabularis', 'b78a40946f072f6b8f2f1a4c80c1e04ff9b54cd4'],
   ['postgresql', 'tabularis-postgresql-plugin', 'tabularis-postgresql-plugin', '963f358e5de037014db37337db3dbaea560aee77'],
   ['sqlserver', 'tabularis-sqlserver-plugin', 'tabularis-sqlserver-plugin', '58c47b374ddc472457d8c946572f4bc8fd930978'],
 ];
@@ -21,9 +21,20 @@ const records = repositories.map(([id, directory, upstream, base]) => {
   const commit = git(['rev-parse', 'HEAD']).toString().trim();
   const tree = git(['rev-parse', 'HEAD^{tree}']).toString().trim();
   const patch = git(['diff', '--binary', '--full-index', base, commit, '--']);
-  return { patch, entry: { id, directory, url: `https://github.com/TabularisDB/${upstream}.git`,
+  const entry = { id, directory, url: `https://github.com/TabularisDB/${upstream}.git`,
     base_commit: base, source_commit: commit, tree, patch: `patches/${id}.patch`,
-    patch_sha256: createHash('sha256').update(patch).digest('hex') } };
+    patch_sha256: createHash('sha256').update(patch).digest('hex') };
+  const uiPackagePath = path.join(cwd, 'ui', 'package.json');
+  if (id === 'sqlserver' && fs.existsSync(uiPackagePath)) {
+    const uiPackage = JSON.parse(fs.readFileSync(uiPackagePath, 'utf8'));
+    if (uiPackage.devDependencies?.['@tabularis/plugin-api']
+        === 'link:../../tabularis-spatial/build-support/sdk/packages/plugin-api') {
+      entry.patch_adaptations = [
+        'The SQL Server UI uses the Git-tracked Spatial SDK instead of a sibling host SDK.',
+      ];
+    }
+  }
+  return { patch, entry };
 });
 fs.mkdirSync(path.join(root, 'integration', 'patches'), { recursive: true });
 for (const { patch, entry } of records) fs.writeFileSync(path.join(root, 'integration', entry.patch), patch);

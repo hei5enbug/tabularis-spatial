@@ -1,4 +1,5 @@
 node_modules/
+.sdk-bootstrap.lock
 dist/
 target/
 coverage/

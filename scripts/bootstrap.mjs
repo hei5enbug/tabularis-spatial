@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedRepositories = {
-  host: ['tabularis-host', 'https://github.com/TabularisDB/tabularis.git'],
+  host: ['tabularis-app-source', 'https://github.com/TabularisDB/tabularis.git'],
   postgresql: ['tabularis-postgresql-plugin', 'https://github.com/TabularisDB/tabularis-postgresql-plugin.git'],
   sqlserver: ['tabularis-sqlserver-plugin', 'https://github.com/TabularisDB/tabularis-sqlserver-plugin.git'],
 };
@@ -50,7 +50,7 @@ export function prepareSources({ root = sourceRoot, only = 'all' } = {}) {
   const manifest = verifySources(root);
   const parent = path.dirname(root);
   const selected = manifest.repositories.filter(entry => only === 'all' || entry.id === only);
-  const lock = path.join(parent, '.tabularis-host-bootstrap.lock');
+  const lock = path.join(parent, '.tabularis-upstreams-bootstrap.lock');
   const lockFd = fs.openSync(lock, 'wx', 0o600);
   const lockStat = fs.fstatSync(lockFd);
   try {
