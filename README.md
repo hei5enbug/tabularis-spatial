@@ -39,6 +39,7 @@ bootstrap은 공개 upstream의 고정 commit을 받아 패치를 적용하고 G
 
 [빌드·설치](docs/building.md), [GUI·CLI·MCP 사용법](docs/usage.md),
 [검증 결과와 남은 검증](docs/verification.md)을 확인하세요.
+공식 드라이버만 사용하는 로컬 앱은 [구형 PostgreSQL 등록 제거](integration/local-host/README.md)를 참고하세요.
 
 ## 공식 앱의 기본 지도
 
