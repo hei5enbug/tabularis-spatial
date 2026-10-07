@@ -91,12 +91,12 @@ Windows 2022는 OpenSSL 및 호스트 컴파일까지 성공했지만 검사 실
 2026-10-04 macOS ARM64에서 사용자 프로필과 분리한 실제 실행 파일을 사용했다.
 GUI 식별자는 `dev.tabularis.spatial-verification-01a1000d`이며 실제 Azure에는 접속하지 않았다.
 
-| 검사 | 관찰 결과 | 로컬 실행 기록 |
+| 검사 | 관찰 결과 | 검증 자료 |
 |---|---|---|
-| CLI/MCP parity | 실제 PostGIS 쿼리·페이지·공간 변환·artifact 파일 내용 동일, 쓰기 거부 | `/private/tmp/tn-WtVrgB/e/report.json` |
-| 실제 GUI·CLI·MCP | 시작 직후 첫 지도 요청과 이후 조작 모두 적용 완료 ACK, 충돌 시 기존 상태 유지 | `/private/tmp/tn-oOvGkj/e/report.json` |
-| 대용량 WKWebView | 전체 1만 객체·25만 좌표, 목록 100개/페이지, 마지막 객체 접근, 100 ms 초과 0회 | `/tmp/tabularis-x1-spatial-performance-c0a68ced-13fc-4e12-bbc0-ea5c451ee0d6-result.json` |
-| 관련 회귀 | UI 47개, 데이터 제한 11개, 호스트 서비스 훅 17개 통과 | `/tmp/tabularis-x1-spatial-incremental-focused.log`, `/tmp/tabularis-x1-spatial-data-focused.log`, `/tmp/tabularis-x1-h-renderer-hook-first.log` |
+| CLI/MCP parity | 실제 PostGIS 쿼리·페이지·공간 변환·artifact 파일 내용 동일, 쓰기 거부 | 격리 실행 보고서 |
+| 실제 GUI·CLI·MCP | 시작 직후 첫 지도 요청과 이후 조작 모두 적용 완료 ACK, 충돌 시 기존 상태 유지 | 격리 실행 보고서 |
+| 대용량 WKWebView | 전체 1만 객체·25만 좌표, 목록 100개/페이지, 마지막 객체 접근, 100 ms 초과 0회 | 성능 fixture 결과 |
+| 관련 회귀 | UI 47개, 데이터 제한 11개, 호스트 서비스 훅 17개 통과 | UI·데이터·서비스 훅 검사 로그 |
 
 마지막 GUI 검사에 사용한 호스트 소스는 `1ba68de491db06c2d82a18e12107c34fd82341ec`다.
 실행 파일 SHA-256은 `c33663234fd9e4e588f051161ffd6d22ea2940e763c98dd3eb07343327d014fd`다.
@@ -295,7 +295,7 @@ ZIP은 648,547 bytes·33 files이며 SHA256은
 ZIP과 설치 폴더의 모든 파일을 `release.json` 원장으로 검증했다.
 공식 앱의 `plugins/drivers/spatial/`에 설치하고 UI 전용 플러그인의 native 등록을 확인했다.
 새 GUI 창과 함께 설치한 Cosmos 런타임의 실행도 확인했다.
-기존 `/usr/local/bin/tabularis` 링크는 새 앱을 가리키며 0.26.0을 반환한다.
+앱의 CLI 실행 파일도 0.26.0을 반환한다.
 
 새 공식 MCP 프로세스의 initialize·tools/list는 성공했고 플러그인 로딩 오류는 없었다.
 화면 자동 조작은 macOS 접근성 권한 거부 `-25211`로 실행하지 못했다.
@@ -317,3 +317,17 @@ SQL Server 패치의 SDK 참조 3곳을 저장소 내부 경로로 바꾸고,
 
 이 검사는 DB 접속이나 쿼리를 실행하지 않았습니다.
 이번 SDK 경로 전환에서 전체 수정 호스트 빌드, 다른 OS 실행과 레지스트리 수용 검증은 수행하지 않았습니다.
+# 개인 경로 제거와 공식 가이드 확인 — 2026-10-07
+
+[공식 Plugin Guide](https://github.com/TabularisDB/tabularis/blob/main/plugins/PLUGIN_GUIDE.md)와
+[Plugin System 문서](https://tabularis.dev/wiki/plugins)의 UI 확장 계약을 다시 확인했습니다.
+상대 자산 경로, IIFE 전역 이름·externals와 직접 Tauri 접근 금지를 대조했습니다.
+공개 검증 문서에서 개인 실행 기록의 절대 경로를 제거했습니다.
+패치의 임시 디렉터리는 운영체제 API로 만들고 PostgreSQL 통합 fixture는 PATH의 `psql`을 사용합니다.
+
+고정 원본에 패치를 새로 적용해 SHA256과 최종 Git tree를 검증했습니다.
+수정된 Node fixture 두 개의 문법과 Rust fixture 세 개의 구문을 확인했습니다.
+bootstrap 검사 4개가 통과했습니다. 이번 경로 조정에서 전체 호스트 빌드와 DB 통합 검사는 실행하지 않았습니다.
+SQL Server 작업 체크아웃의 staged 변경 45개는 Git 백업 복원을 검증한 뒤 작업 폴더를 제거했습니다.
+로컬의 Tabularis 관련 작업 저장소는 Azure와 Spatial 두 개이며, 설치 연결 14개의 드라이버 참조를 확인했습니다.
+이번 검사는 DB 접속이나 쿼리를 실행하지 않았고 레지스트리 수용 여부를 통과로 표시하지 않습니다.

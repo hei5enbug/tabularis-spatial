@@ -34,6 +34,17 @@ const records = repositories.map(([id, directory, upstream, base]) => {
       ];
     }
   }
+  const portableFixturePath = path.join(cwd, id === 'host'
+    ? 'tests/service/support/native-process.mjs' : 'tests/spatial/export_live.rs');
+  if (['host', 'postgresql'].includes(id) && fs.existsSync(portableFixturePath)) {
+    const fixture = fs.readFileSync(portableFixturePath, 'utf8');
+    if ((id === 'host' && fixture.includes('os.tmpdir()'))
+        || (id === 'postgresql' && fixture.includes('Command::new("psql")'))) {
+      entry.patch_adaptations = [
+        'Integration fixtures use OS temporary directories and PATH tools instead of machine-specific paths.',
+      ];
+    }
+  }
   return { patch, entry };
 });
 fs.mkdirSync(path.join(root, 'integration', 'patches'), { recursive: true });

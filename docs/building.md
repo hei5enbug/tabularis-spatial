@@ -13,6 +13,18 @@ pnpm bootstrap
 UI를 빌드합니다. SDK 파일을 검증하려면 `pnpm verify:sdk`, SDK 패키지만 다시 빌드하려면
 `pnpm build:sdk`를 실행합니다.
 
+## 공식 UI 확장 계약
+
+[공식 플러그인 가이드](https://github.com/TabularisDB/tabularis/blob/main/plugins/PLUGIN_GUIDE.md)와
+[플러그인 시스템 문서](https://tabularis.dev/wiki/plugins)의 UI 확장 계약을 따릅니다.
+모듈·자산은 플러그인 폴더 기준 상대 경로이며, UI는 `__tabularis_plugin__` IIFE로 빌드합니다.
+React·JSX runtime·plugin API는 호스트의 전역 구현을 사용하고 Tauri API를 직접 호출하지 않습니다.
+개인 실행 경로·개인 도구 설치 위치는 빌드 입력이나 배포 패키지에 포함하지 않습니다.
+
+Spatial은 DB 실행 파일이 없는 UI 전용 패키지입니다.
+`kind: driver`와 UI 확장만 가진 패키지의 로딩은 공식 0.26.0 호스트에서 확인했습니다.
+이는 가이드의 표준 DB 드라이버 실행 파일 모델과 별도이며, 레지스트리 수용 여부는 미확인입니다.
+
 ## 앱과 기존 드라이버 source 준비
 
 수정된 앱이나 기존 드라이버 source가 필요한 통합 작업에만 실행합니다.

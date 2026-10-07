@@ -2590,7 +2590,7 @@ index 0000000000000000000000000000000000000000..63d232ff17551e02d1acd09e22b0bc98
 +}
 diff --git a/tests/spatial/export_live.rs b/tests/spatial/export_live.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..fccc4af67f07dced3371806a143b5e767bb1003e
+index 0000000000000000000000000000000000000000..6f75db83c3505ea372a8e2da3d29e431c0d4c10d
 --- /dev/null
 +++ b/tests/spatial/export_live.rs
 @@ -0,0 +1,309 @@
@@ -2676,7 +2676,7 @@ index 0000000000000000000000000000000000000000..fccc4af67f07dced3371806a143b5e76
 +impl Drop for ExportFixture {
 +    fn drop(&mut self) {
 +        postgresql_plugin::handlers::spatial::table::invalidate_connection(&self.schema);
-+        let _=Command::new("/opt/homebrew/opt/postgresql@17/bin/psql")
++        let _=Command::new("psql")
 +            .args(["-X","-w","-h","127.0.0.1","-p",&self.port.to_string(),"-U","postgres","-d","spatial_fixture","-c",&format!("DROP SCHEMA IF EXISTS {} CASCADE",self.schema)])
 +            .env("PGPASSFILE","/dev/null").env("PGSERVICEFILE","/dev/null").env("PGSSLMODE","disable").env("PGGSSENCMODE","disable")
 +            .env_remove("PGSERVICE").env_remove("PGPASSWORD").env_remove("PGOPTIONS")

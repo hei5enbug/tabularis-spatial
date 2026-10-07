@@ -16599,12 +16599,13 @@ index 6ab8c4e522970f4788cd9771b5721c5f8df4cbc9..8566e6a9a1a8ece97b7ca6c1f7fc3b39
        jiti: '*'
 diff --git a/scripts/test-service-native.mjs b/scripts/test-service-native.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..a8ee883ac370be95e40b5002b6b51bd7547a8208
+index 0000000000000000000000000000000000000000..9f887aeee52086ef67e7961c45782671414d780a
 --- /dev/null
 +++ b/scripts/test-service-native.mjs
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,59 @@
 +import fs from "node:fs";
 +import path from "node:path";
++import os from "node:os";
 +import { spawn } from "node:child_process";
 +import { fileURLToPath } from "node:url";
 +import { explicitNativeEnvironment, loadNativeInputs, NativeHarnessError } from "../tests/service/support/native-process.mjs";
@@ -16613,7 +16614,7 @@ index 0000000000000000000000000000000000000000..a8ee883ac370be95e40b5002b6b51bd7
 +  const args = process.argv.slice(2);
 +  if (args.length !== 1 || !["parity", "webview"].includes(args[0])) throw new NativeHarnessError("USAGE: parity|webview");
 +  const inputs = loadNativeInputs(explicitNativeEnvironment());
-+  const root = fs.mkdtempSync("/private/tmp/tn-run-");
++  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tabularis-service-native-"));
 +  fs.chmodSync(root, 0o700);
 +  const output = fs.openSync(path.join(root, "runner.log"), "wx", 0o600);
 +  const filename = fileURLToPath(new URL(`../tests/service/native/${args[0]}.native.mjs`, import.meta.url));
@@ -16882,10 +16883,10 @@ index 65d34290a6d6d34d32f8fbd016251de2e61164c7..89fdd72a4c643989ad39705d404672a4
 +mod tests;
 diff --git a/src-tauri/src/cli_tests.rs b/src-tauri/src/cli_tests.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e741e7cd34f6507559b3b4b20475f10bede49904
+index 0000000000000000000000000000000000000000..900398dc726adb7bd625ba7afdc4082016463aff
 --- /dev/null
 +++ b/src-tauri/src/cli_tests.rs
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,40 @@
 +use super::*;
 +
 +fn checked(arguments:&[&str])->Result<Args,String> {
@@ -16906,7 +16907,9 @@ index 0000000000000000000000000000000000000000..e741e7cd34f6507559b3b4b20475f10b
 +#[test]
 +fn 단일_요청과_표준입출력과_승인_및_저장_문법은_명시적_값을_유지한다(){
 +    // given
-+    let arguments=[vec!["tabularis","service","--request","request.json","--write","--credential-stdin"],vec!["tabularis","service","--stdio","--credential-fd","7","--credential-request-id","request-id"],vec!["tabularis","service","approve","approval-id","--decision","deny","--reason","reason"],vec!["tabularis","service","artifact-save","artifact-id","--output","/private/tmp/owned.geojson"]];
++    let output=std::env::temp_dir().join("owned.geojson");
++    let output=output.to_str().unwrap();
++    let arguments=[vec!["tabularis","service","--request","request.json","--write","--credential-stdin"],vec!["tabularis","service","--stdio","--credential-fd","7","--credential-request-id","request-id"],vec!["tabularis","service","approve","approval-id","--decision","deny","--reason","reason"],vec!["tabularis","service","artifact-save","artifact-id","--output",output]];
 +    // when
 +    let actual=arguments.map(|arguments|checked(&arguments).unwrap());
 +    // then
@@ -25065,10 +25068,10 @@ index 0000000000000000000000000000000000000000..01d1c4260abb207863ca66ff48f717b2
 +mod tests;
 diff --git a/src-tauri/src/services/platform/tests.rs b/src-tauri/src/services/platform/tests.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..ad11c5bac12b4f29e7c3acaf0585da359b24c58b
+index 0000000000000000000000000000000000000000..e6c1f197d9418d9b06295dd4a20ab8bd5544fd95
 --- /dev/null
 +++ b/src-tauri/src/services/platform/tests.rs
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,74 @@
 +use super::*;
 +use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicUsize, Ordering}}, time::Duration};
 +use async_trait::async_trait;
@@ -25135,7 +25138,9 @@ index 0000000000000000000000000000000000000000..ad11c5bac12b4f29e7c3acaf0585da35
 +#[test]
 +fn 격리_경로는_비어있거나_상대_경로이면_접근_전에_거부한다(){
 +    // given
-+    let values=[("",false),("relative",false),("/private/tmp/owned-profile",true)];
++    let absolute=std::env::temp_dir().join("owned-profile");
++    let absolute=absolute.to_str().unwrap();
++    let values=[("",false),("relative",false),(absolute,true)];
 +    // when
 +    let actual=values.map(|(value,_)|checked_isolation_paths(Some(std::ffi::OsStr::new(value)),Some(std::ffi::OsStr::new(value))).is_ok());
 +    // then
@@ -38339,12 +38344,13 @@ index 0000000000000000000000000000000000000000..a7a8bb6216634c654caf9e6558cf5046
 +});
 diff --git a/tests/service/support/native-process.mjs b/tests/service/support/native-process.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..48c6bb4b4a9209638d07b0544ede2c1a613f7458
+index 0000000000000000000000000000000000000000..92099baefc2f5e52616c7708f0fef778669ffc81
 --- /dev/null
 +++ b/tests/service/support/native-process.mjs
-@@ -0,0 +1,447 @@
+@@ -0,0 +1,448 @@
 +import fs from "node:fs";
 +import path from "node:path";
++import os from "node:os";
 +import { spawn } from "node:child_process";
 +import { createHash, randomUUID } from "node:crypto";
 +import { inflateRawSync } from "node:zlib";
@@ -38681,7 +38687,7 @@ index 0000000000000000000000000000000000000000..48c6bb4b4a9209638d07b0544ede2c1a
 +
 +export function createNativeFixture(inputs) {
 +  requireCondition(process.platform === "darwin", "NATIVE_MACOS_FIXTURE_REQUIRED");
-+  const root = fs.mkdtempSync("/private/tmp/tn-");
++  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tabularis-service-fixture-"));
 +  fs.chmodSync(root, 0o700);
 +  const fixture = { root, inputs, deadline: performance.now() + 10 * 60 * 1000,
 +    processes: [], requests: [], responses: [], cleanupErrors: [] };
