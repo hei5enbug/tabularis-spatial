@@ -740,6 +740,54 @@
     }
   },
   {
+    "name": "catalog.describe의 trigger 소유 테이블 입력을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "catalog.describe",
+      "request_id": "fixture-catalog.describe",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "table": {
+          "database": "fixture",
+          "schema": "public",
+          "table": "items"
+        },
+        "kind": "trigger",
+        "owner_table": "items"
+      }
+    }
+  },
+  {
+    "name": "catalog.describe의 빈 소유 테이블 입력을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "catalog.describe",
+      "request_id": "fixture-catalog.describe",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "table": {
+          "database": "fixture",
+          "schema": "public",
+          "table": "items"
+        },
+        "kind": "trigger",
+        "owner_table": ""
+      }
+    }
+  },
+  {
     "name": "catalog.describe의 추가 입력 필드를 거부한다",
     "schema": "request",
     "valid": false,
@@ -759,6 +807,52 @@
           "table": "items"
         },
         "unexpected": true
+      }
+    }
+  },
+  {
+    "name": "catalog.describe의 개체 종류 입력을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "catalog.describe",
+      "request_id": "fixture-catalog.describe",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "table": {
+          "database": "fixture",
+          "schema": "public",
+          "table": "items"
+        },
+        "kind": "routine"
+      }
+    }
+  },
+  {
+    "name": "catalog.describe의 알 수 없는 개체 종류를 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "catalog.describe",
+      "request_id": "fixture-catalog.describe",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "table": {
+          "database": "fixture",
+          "schema": "public",
+          "table": "items"
+        },
+        "kind": "index"
       }
     }
   },
@@ -1070,6 +1164,169 @@
       "deadline_ms": 30000,
       "input": {
         "next_token": "page-1"
+      }
+    }
+  },
+  {
+    "name": "query.explain 입력을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1"
+      }
+    }
+  },
+  {
+    "name": "query.explain의 database와 schema 입력을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1",
+        "database": "app",
+        "schema": "public"
+      }
+    }
+  },
+  {
+    "name": "query.explain의 추가 입력 필드를 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": true
+      }
+    }
+  },
+  {
+    "name": "query.explain의 sql 누락을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {}
+    }
+  },
+  {
+    "name": "query.explain의 빈 sql을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": ""
+      }
+    }
+  },
+  {
+    "name": "query.explain의 문자열이 아닌 sql을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": 1
+      }
+    }
+  },
+  {
+    "name": "query.explain의 빈 database를 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1",
+        "database": ""
+      }
+    }
+  },
+  {
+    "name": "query.explain의 connection_id 누락을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1"
+      }
+    }
+  },
+  {
+    "name": "query.explain의 connection_id null을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.explain",
+      "request_id": "fixture-query.explain",
+      "connection_id": null,
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "sql": "SELECT 1"
       }
     }
   },
@@ -5828,6 +6085,90 @@
     }
   },
   {
+    "name": "query.execute는 deadline_ms 3600000을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 3600000,
+      "input": {
+        "language": "sql",
+        "text": "SELECT 1",
+        "parameters": [],
+        "page_size": 100
+      }
+    }
+  },
+  {
+    "name": "query.execute는 세션에서도 deadline_ms 3600000을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute",
+      "connection_id": "connection-1",
+      "session_id": "session-1",
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 3600000,
+      "input": {
+        "language": "sql",
+        "text": "SELECT 1",
+        "parameters": [],
+        "page_size": 100
+      }
+    }
+  },
+  {
+    "name": "query.execute의 deadline_ms 3600001을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 3600001,
+      "input": {
+        "language": "sql",
+        "text": "SELECT 1",
+        "parameters": [],
+        "page_size": 100
+      }
+    }
+  },
+  {
+    "name": "query.execute의 세션 deadline_ms 3600001을 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute",
+      "connection_id": "connection-1",
+      "session_id": "session-1",
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 3600001,
+      "input": {
+        "language": "sql",
+        "text": "SELECT 1",
+        "parameters": [],
+        "page_size": 100
+      }
+    }
+  },
+  {
     "name": "deadline_ms 잘못된 envelope 값을 거부한다 0",
     "schema": "request",
     "valid": false,
@@ -10034,6 +10375,231 @@
           "channel_id": 7
         },
         "persistence": "session"
+      }
+    }
+  },
+  {
+    "name": "쓰기 의도 누락 오류 코드를 허용한다",
+    "schema": "response",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "request_id": "fixture-response",
+      "connection_id": "connection-1",
+      "status": "failed",
+      "job_id": null,
+      "result_id": null,
+      "data": null,
+      "page": {
+        "next_token": null,
+        "has_more": false,
+        "resume_mode": "none"
+      },
+      "limits": {
+        "truncated": false,
+        "reasons": []
+      },
+      "metrics": {
+        "elapsed_ms": 0,
+        "request_charge": null,
+        "retry_count": 0
+      },
+      "warnings": [],
+      "error": {
+        "code": "WRITE_INTENT_REQUIRED",
+        "message": "Rejected before queueing",
+        "retryable": false,
+        "outcome": "not_started",
+        "details": null
+      }
+    }
+  },
+  {
+    "name": "비밀 거부 오류 코드를 허용한다",
+    "schema": "response",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "request_id": "fixture-response",
+      "connection_id": "connection-1",
+      "status": "failed",
+      "job_id": null,
+      "result_id": null,
+      "data": null,
+      "page": {
+        "next_token": null,
+        "has_more": false,
+        "resume_mode": "none"
+      },
+      "limits": {
+        "truncated": false,
+        "reasons": []
+      },
+      "metrics": {
+        "elapsed_ms": 0,
+        "request_charge": null,
+        "retry_count": 0
+      },
+      "warnings": [],
+      "error": {
+        "code": "SECRET_NOT_ACCEPTED",
+        "message": "Rejected before queueing",
+        "retryable": false,
+        "outcome": "not_started",
+        "details": null
+      }
+    }
+  },
+  {
+    "name": "MCP 금지 작업 오류 코드를 허용한다",
+    "schema": "response",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "request_id": "fixture-response",
+      "connection_id": "connection-1",
+      "status": "failed",
+      "job_id": null,
+      "result_id": null,
+      "data": null,
+      "page": {
+        "next_token": null,
+        "has_more": false,
+        "resume_mode": "none"
+      },
+      "limits": {
+        "truncated": false,
+        "reasons": []
+      },
+      "metrics": {
+        "elapsed_ms": 0,
+        "request_charge": null,
+        "retry_count": 0
+      },
+      "warnings": [],
+      "error": {
+        "code": "OPERATION_NOT_ALLOWED",
+        "message": "Rejected before queueing",
+        "retryable": false,
+        "outcome": "not_started",
+        "details": null
+      }
+    }
+  },
+  {
+    "name": "query.execute의 스키마 선택을 허용한다",
+    "schema": "request",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute-schema",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "language": "sql",
+        "text": "select 1",
+        "parameters": [],
+        "page_size": 10,
+        "database": "app",
+        "schema": "public"
+      }
+    }
+  },
+  {
+    "name": "query.execute의 빈 스키마를 거부한다",
+    "schema": "request",
+    "valid": false,
+    "value": {
+      "protocol_version": 1,
+      "operation": "query.execute",
+      "request_id": "fixture-query.execute-schema",
+      "connection_id": "connection-1",
+      "session_id": null,
+      "map_id": null,
+      "expected_version": null,
+      "deadline_ms": 30000,
+      "input": {
+        "language": "sql",
+        "text": "select 1",
+        "parameters": [],
+        "page_size": 10,
+        "schema": ""
+      }
+    }
+  },
+  {
+    "name": "취소 미확인 오류 코드를 허용한다",
+    "schema": "response",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "request_id": "fixture-response",
+      "connection_id": "connection-1",
+      "status": "outcome_unknown",
+      "job_id": "job-1",
+      "result_id": null,
+      "data": null,
+      "page": {
+        "next_token": null,
+        "has_more": false,
+        "resume_mode": "none"
+      },
+      "limits": {
+        "truncated": false,
+        "reasons": []
+      },
+      "metrics": {
+        "elapsed_ms": 0,
+        "request_charge": null,
+        "retry_count": 0
+      },
+      "warnings": [],
+      "error": {
+        "code": "CANCEL_NOT_CONFIRMED",
+        "message": "The driver did not confirm the cancellation; the call may still finish.",
+        "retryable": false,
+        "outcome": "unknown",
+        "details": null
+      }
+    }
+  },
+  {
+    "name": "문장 오류 코드를 허용한다",
+    "schema": "response",
+    "valid": true,
+    "value": {
+      "protocol_version": 1,
+      "request_id": "fixture-response",
+      "connection_id": "connection-1",
+      "status": "failed",
+      "job_id": "job-1",
+      "result_id": null,
+      "data": null,
+      "page": {
+        "next_token": null,
+        "has_more": false,
+        "resume_mode": "none"
+      },
+      "limits": {
+        "truncated": false,
+        "reasons": []
+      },
+      "metrics": {
+        "elapsed_ms": 0,
+        "request_charge": null,
+        "retry_count": 0
+      },
+      "warnings": [],
+      "error": {
+        "code": "DATABASE_ERROR",
+        "message": "The database rejected the statement.",
+        "retryable": false,
+        "outcome": "not_applied",
+        "details": null
       }
     }
   }

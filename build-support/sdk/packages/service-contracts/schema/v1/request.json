@@ -27,6 +27,7 @@
         "catalog.describe",
         "query.execute",
         "query.next",
+        "query.explain",
         "result.get",
         "result.release",
         "row.insert",
@@ -119,11 +120,30 @@
     "deadline_ms": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 120000,
+      "maximum": 3600000,
       "default": 30000
     },
     "input": {
       "type": "object"
+    }
+  },
+  "if": {
+    "properties": {
+      "operation": {
+        "not": {
+          "const": "query.execute"
+        }
+      }
+    },
+    "required": [
+      "operation"
+    ]
+  },
+  "then": {
+    "properties": {
+      "deadline_ms": {
+        "maximum": 120000
+      }
     }
   },
   "oneOf": [
@@ -312,6 +332,24 @@
         },
         "input": {
           "$ref": "#/definitions/input.query.next"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "connection_id"
+      ]
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "query.explain"
+        },
+        "input": {
+          "$ref": "#/definitions/input.query.explain"
         },
         "connection_id": {
           "type": "string",
@@ -1625,6 +1663,30 @@
       "properties": {
         "table": {
           "$ref": "#/definitions/table"
+        },
+        "kind": {
+          "enum": [
+            "table",
+            "view",
+            "materialized_view",
+            "foreign_table",
+            "routine",
+            "aggregate",
+            "trigger",
+            "sequence",
+            "synonym",
+            "type",
+            "collation",
+            "operator",
+            "operator_class",
+            "operator_family",
+            "rule",
+            "security_policy"
+          ]
+        },
+        "owner_table": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -1661,6 +1723,10 @@
           "default": "exact"
         },
         "database": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
           "type": "string",
           "minLength": 1
         },
@@ -1746,6 +1812,27 @@
       },
       "required": [
         "next_token"
+      ],
+      "additionalProperties": false
+    },
+    "input.query.explain": {
+      "type": "object",
+      "properties": {
+        "sql": {
+          "type": "string",
+          "minLength": 1
+        },
+        "database": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sql"
       ],
       "additionalProperties": false
     },

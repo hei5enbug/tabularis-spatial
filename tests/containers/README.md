@@ -1,6 +1,6 @@
 # PostGIS container tests
 
-Run from the repository root with Docker available:
+Run from `extensions/spatial` with Docker available:
 
 ```sh
 corepack pnpm install --frozen-lockfile
